@@ -251,4 +251,116 @@ final class Ui {
         t.setTypeface(Typeface.DEFAULT_BOLD);
         t.setPadding(dp(a, 4), dp(a, 12), 0, dp(a, 2));
     }
+
+    /** Tessera della dashboard: icona, titolo, stato colorato. */
+    static void tile(Activity a, LinearLayout row, int iconRes, String title, String status, int color,
+                     View.OnClickListener l) {
+        LinearLayout box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(a, 14), dp(a, 14), dp(a, 14), dp(a, 14));
+        box.setBackground(pressable(a, CARD, 18));
+        box.setOnClickListener(l);
+        box.setMinimumHeight(dp(a, 132));
+
+        LinearLayout top = new LinearLayout(a);
+        top.setOrientation(LinearLayout.HORIZONTAL);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        FrameLayout bubble = new FrameLayout(a);
+        bubble.setBackground(rounded(a, alpha(color == SUB ? ACCENT : color, 40), 12));
+        bubble.addView(icon(a, iconRes, color == SUB ? ACCENT : color, 22),
+                new FrameLayout.LayoutParams(dp(a, 22), dp(a, 22), Gravity.CENTER));
+        top.addView(bubble, new LinearLayout.LayoutParams(dp(a, 40), dp(a, 40)));
+        View spacer = new View(a);
+        top.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
+        View dot = new View(a);
+        dot.setBackground(rounded(a, color, 6));
+        top.addView(dot, new LinearLayout.LayoutParams(dp(a, 10), dp(a, 10)));
+        box.addView(top);
+
+        TextView t = new TextView(a);
+        t.setText(title);
+        t.setTextSize(15);
+        t.setTextColor(TEXT);
+        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        t.setPadding(0, dp(a, 12), 0, dp(a, 2));
+        box.addView(t);
+        TextView s = new TextView(a);
+        s.setText(status);
+        s.setTextSize(12);
+        s.setTextColor(color);
+        s.setMaxLines(3);
+        box.addView(s);
+
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1);
+        lp.setMarginStart(row.getChildCount() == 0 ? 0 : dp(a, 10));
+        row.addView(box, lp);
+    }
+
+    /** Barra orizzontale proporzionale (grafici). */
+    static void bar(Activity a, LinearLayout parent, float fraction, int color) {
+        FrameLayout track = new FrameLayout(a);
+        track.setBackground(rounded(a, CARD2, 6));
+        View fill = new View(a);
+        fill.setBackground(rounded(a, color, 6));
+        track.addView(fill, new FrameLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(a, 10));
+        lp.topMargin = dp(a, 6);
+        lp.bottomMargin = dp(a, 8);
+        parent.addView(track, lp);
+        track.post(() -> {
+            int w = Math.max(dp(a, 6), Math.round(track.getWidth() * Math.max(0f, Math.min(1f, fraction))));
+            android.animation.ValueAnimator va = android.animation.ValueAnimator.ofInt(0, w);
+            va.setDuration(700);
+            va.addUpdateListener(an -> {
+                FrameLayout.LayoutParams flp = (FrameLayout.LayoutParams) fill.getLayoutParams();
+                flp.width = (int) an.getAnimatedValue();
+                fill.setLayoutParams(flp);
+            });
+            va.start();
+        });
+    }
+
+    /** Riga di controllo con icona di stato (ok / attenzione / problema). */
+    static LinearLayout checkRow(Activity a, LinearLayout parent, int state, String title, String detail) {
+        int color = state == 0 ? GREEN : state == 1 ? ORANGE : RED;
+        int icon = state == 0 ? R.drawable.ic_ok : state == 1 ? R.drawable.ic_warning : R.drawable.ic_bad;
+        LinearLayout row = new LinearLayout(a);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(dp(a, 14), dp(a, 14), dp(a, 14), dp(a, 12));
+        row.setBackground(rounded(a, CARD, 16));
+        ImageView ic = icon(a, icon, color, 24);
+        row.addView(ic);
+        LinearLayout texts = new LinearLayout(a);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setPadding(dp(a, 12), 0, 0, 0);
+        TextView t = new TextView(a);
+        t.setText(title);
+        t.setTextSize(15);
+        t.setTextColor(TEXT);
+        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        texts.addView(t);
+        TextView d = new TextView(a);
+        d.setText(detail);
+        d.setTextSize(13);
+        d.setTextColor(SUB);
+        d.setLineSpacing(0, 1.15f);
+        d.setPadding(0, dp(a, 3), 0, 0);
+        texts.addView(d);
+        row.addView(texts, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        parent.addView(row, full(a, 10));
+        return texts;
+    }
+
+    /** Link testuale (es. "Risolvi ›"). */
+    static TextView link(Activity a, LinearLayout parent, String text, int color, View.OnClickListener l) {
+        TextView t = new TextView(a);
+        t.setText(text);
+        t.setTextSize(13);
+        t.setTextColor(color);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setPadding(0, dp(a, 8), 0, 0);
+        t.setOnClickListener(l);
+        parent.addView(t);
+        return t;
+    }
 }

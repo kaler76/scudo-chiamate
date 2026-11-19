@@ -12,6 +12,13 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- Notifiche e servizio in primo piano -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Verifica deviazioni chiamate con l'operatore (codici *#21# ecc.) -->
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <!-- Traffico dati per app (l'utente lo concede da Impostazioni > Accesso utilizzo) -->
+    <uses-permission
+        android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -37,6 +44,9 @@
         <activity android:name=".ScanActivity" android:exported="false" />
         <activity android:name=".LogActivity" android:exported="false" />
         <activity android:name=".TipsActivity" android:exported="false" />
+        <activity android:name=".ForwardActivity" android:exported="false" />
+        <activity android:name=".TrafficActivity" android:exported="false" />
+        <activity android:name=".AuditActivity" android:exported="false" />
 
         <service
             android:name=".CallMonitorService"
