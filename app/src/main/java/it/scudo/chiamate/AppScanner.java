@@ -78,13 +78,11 @@ final class AppScanner {
             ApplicationInfo ai = pi.applicationInfo;
             if (ai == null || pi.packageName.equals(ctx.getPackageName())) continue;
 
-            boolean system = (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
-            boolean updatedSystem = (ai.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0;
-            boolean special = accessibility.contains(pi.packageName)
-                    || admins.contains(pi.packageName)
-                    || notifListeners.contains(pi.packageName);
-            // Le app di sistema pure si saltano, a meno che abbiano servizi speciali attivi.
-            if (system && !updatedSystem && !special) continue;
+            // Le app di sistema (preinstallate da Samsung/Google, anche se aggiornate) si saltano:
+            // un'app spia non può diventare app di sistema senza modificare il telefono (root).
+            boolean system = (ai.flags & (ApplicationInfo.FLAG_SYSTEM
+                    | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0;
+            if (system) continue;
 
             Result r = new Result();
             r.pkg = pi.packageName;
@@ -103,26 +101,31 @@ final class AppScanner {
             boolean boot = granted.contains("android.permission.RECEIVE_BOOT_COMPLETED");
             boolean overlay = granted.contains("android.permission.SYSTEM_ALERT_WINDOW");
 
-            if (mic) add(r, 3, "Può usare il microfono");
-            if (callLog) add(r, 3, "Può leggere il registro chiamate");
-            if (phone) add(r, 1, "Può sapere quando sei in chiamata");
-            if (sms) add(r, 2, "Può leggere gli SMS");
-            if (bgLocation) add(r, 2, "Posizione anche in background");
-            else if (location) add(r, 1, "Può conoscere la posizione");
-            if (contacts) add(r, 1, "Può leggere i contatti");
-            if (boot) add(r, 1, "Si avvia da sola all'accensione");
-            if (overlay) add(r, 1, "Può disegnare sopra le altre app");
+            String installer = installerOf(pm, r.pkg);
+            boolean fromStore = installer != null && TRUSTED_STORES.contains(installer);
+            // Le app spia commerciali sono vietate sul Play Store e si installano a mano:
+            // per le app degli store i permessi da soli non bastano a renderle sospette.
+            int w = fromStore ? 0 : 1;
 
-            if (accessibility.contains(r.pkg)) add(r, 5, "Servizio di ACCESSIBILITÀ attivo (può leggere lo schermo)");
-            if (admins.contains(r.pkg)) add(r, 4, "È AMMINISTRATORE del dispositivo (difficile da disinstallare)");
-            if (notifListeners.contains(r.pkg)) add(r, 3, "Legge tutte le notifiche");
+            if (mic) add(r, 3 * w, "Può usare il microfono");
+            if (callLog) add(r, 3 * w, "Può leggere il registro chiamate");
+            if (phone) add(r, 1 * w, "Può sapere quando sei in chiamata");
+            if (sms) add(r, 2 * w, "Può leggere gli SMS");
+            if (bgLocation) add(r, 2 * w, "Posizione anche in background");
+            else if (location) add(r, 1 * w, "Può conoscere la posizione");
+            if (contacts) add(r, 1 * w, "Può leggere i contatti");
+            if (boot) add(r, 1 * w, "Si avvia da sola all'accensione");
+            if (overlay) add(r, 1 * w, "Può disegnare sopra le altre app");
 
-            if (pm.getLaunchIntentForPackage(r.pkg) == null && !system) {
+            if (accessibility.contains(r.pkg)) add(r, fromStore ? 2 : 5, "Servizio di ACCESSIBILITÀ attivo (può leggere lo schermo)");
+            if (admins.contains(r.pkg)) add(r, fromStore ? 2 : 4, "È AMMINISTRATORE del dispositivo (difficile da disinstallare)");
+            if (notifListeners.contains(r.pkg)) add(r, fromStore ? 1 : 3, "Legge tutte le notifiche");
+
+            if (pm.getLaunchIntentForPackage(r.pkg) == null) {
                 add(r, 3, "Nessuna icona nel menu app (nascosta)");
             }
 
-            String installer = installerOf(pm, r.pkg);
-            if (!system && (installer == null || !TRUSTED_STORES.contains(installer))) {
+            if (!fromStore) {
                 add(r, 2, "Non installata da Play Store o Galaxy Store"
                         + (installer == null ? "" : " (" + installer + ")"));
             }
@@ -136,12 +139,12 @@ final class AppScanner {
             }
 
             // Combinazione tipica delle app spia: microfono + chiamate + nascosta o accessibilità.
-            if (mic && (callLog || phone) && (accessibility.contains(r.pkg)
+            if (!fromStore && mic && (callLog || phone) && (accessibility.contains(r.pkg)
                     || pm.getLaunchIntentForPackage(r.pkg) == null)) {
                 add(r, 3, "Combinazione tipica delle app spia");
             }
 
-            if (r.score > 0) results.add(r);
+            if (r.score > 0 || !fromStore) results.add(r);
         }
         Collections.sort(results, (a, b) -> Integer.compare(b.score, a.score));
         return results;

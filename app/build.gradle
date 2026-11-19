@@ -10,8 +10,8 @@ android {
         applicationId 'it.scudo.chiamate'
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode 2
+        versionName '1.1'
     }
 
     compileOptions {
@@ -19,8 +19,19 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
+    // Chiave fissa: così ogni nuova versione si installa sopra la precedente.
+    signingConfigs {
+        fissa {
+            storeFile file('scudo.keystore')
+            storePassword 'scudo123'
+            keyAlias 'scudo'
+            keyPassword 'scudo123'
+        }
+    }
+
     buildTypes {
-        release { minifyEnabled false }
+        debug { signingConfig signingConfigs.fissa }
+        release { minifyEnabled false; signingConfig signingConfigs.fissa }
     }
 
     lint {
