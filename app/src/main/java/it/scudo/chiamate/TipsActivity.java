@@ -2,7 +2,6 @@ package it.scudo.chiamate;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -14,7 +13,7 @@ public class TipsActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         LinearLayout col = Ui.page(this);
-        Ui.title(this, col, "Consigli e limiti");
+        Ui.header(this, col, "Consigli e limiti", null);
 
         section(col, "Due tipi di intercettazione",
                 "• Tramite l'operatore: la chiamata viene copiata sulla rete, fuori dal telefono. Non cambia"
@@ -59,10 +58,11 @@ public class TipsActivity extends Activity {
     }
 
     private void section(LinearLayout col, String title, String body) {
-        LinearLayout card = Ui.card(this, col, Ui.BLUE);
-        TextView t = Ui.text(this, card, title, 17, Ui.BLUE);
-        t.setTypeface(Typeface.DEFAULT_BOLD);
-        Ui.text(this, card, body, 15, Color.DKGRAY);
+        LinearLayout card = Ui.card(this, col, Ui.ACCENT);
+        TextView t = Ui.text(this, card, title, 17, Ui.TEXT);
+        t.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+        TextView b = Ui.text(this, card, body, 14, Ui.TEXT);
+        b.setAlpha(0.85f);
     }
 
     private void open(Intent i) {

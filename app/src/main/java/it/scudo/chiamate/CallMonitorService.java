@@ -6,8 +6,12 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.database.Cursor;
+import android.provider.CallLog;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.content.pm.ServiceInfo;
@@ -63,6 +67,25 @@ public class CallMonitorService extends Service {
     private int alertsThisCall = 0;
     private final Set<String> seenRecorders = new HashSet<>();
     private int alertId = 100;
+    private String lastRingingNumber = null;
+    private static final String CH_CALLER = "chiamante";
+    private static final int ID_CALLER = 2;
+
+    /** Il sistema invia il numero in arrivo solo alle app con permesso Registro chiamate. */
+    private final BroadcastReceiver phoneState = new BroadcastReceiver() {
+        @Override public void onReceive(Context c, Intent i) {
+            String state = i.getStringExtra(TelephonyManager.EXTRA_STATE);
+            @SuppressWarnings("deprecation")
+            String num = i.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER);
+            if (TelephonyManager.EXTRA_STATE_RINGING.equals(state) && num != null
+                    && !num.equals(lastRingingNumber)) {
+                lastRingingNumber = num;
+                showCaller(num);
+            } else if (TelephonyManager.EXTRA_STATE_IDLE.equals(state)) {
+                lastRingingNumber = null;
+            }
+        }
+    };
 
     private final Runnable poll = new Runnable() {
         @Override public void run() {
@@ -102,6 +125,9 @@ public class CallMonitorService extends Service {
         }
         running = true;
         registerCallListener();
+        IntentFilter f = new IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED);
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(phoneState, f, Context.RECEIVER_EXPORTED);
+        else registerReceiver(phoneState, f);
         EventLog.add(this, EventLog.INFO, "Protezione chiamate attivata");
     }
 
@@ -113,6 +139,7 @@ public class CallMonitorService extends Service {
         running = false;
         handler.removeCallbacks(poll);
         unregisterCallListener();
+        try { unregisterReceiver(phoneState); } catch (Exception ignored) { }
         EventLog.add(this, EventLog.INFO, "Protezione chiamate disattivata");
         super.onDestroy();
     }
@@ -179,6 +206,50 @@ public class CallMonitorService extends Service {
             EventLog.add(this, alertsThisCall == 0 ? EventLog.INFO : EventLog.WARN,
                     "Chiamata terminata (" + secs + " s, cambi di cella: " + cellChanges + "): " + esito);
             updateStatus("Protezione attiva: controllo le chiamate");
+            handler.postDelayed(this::logLastCall, 2500);
+        }
+    }
+
+    // ------------------------------------------------------------- chiamante
+
+    private void showCaller(String num) {
+        String info = NumberInfo.describe(this, num);
+        EventLog.add(this, EventLog.INFO, "Chiamata in arrivo da " + info);
+        Notification n = new Notification.Builder(this, CH_CALLER)
+                .setSmallIcon(R.drawable.ic_notif)
+                .setContentTitle("Chi ti sta chiamando")
+                .setContentText(info)
+                .setStyle(new Notification.BigTextStyle().bigText(info))
+                .setTimeoutAfter(60_000)
+                .setAutoCancel(true)
+                .build();
+        getSystemService(NotificationManager.class).notify(ID_CALLER, n);
+    }
+
+    /** Dopo la chiamata legge l'ultima voce del registro: numero, direzione, durata. */
+    private void logLastCall() {
+        if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) return;
+        String[] cols = {CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DURATION,
+                CallLog.Calls.NUMBER_PRESENTATION};
+        try (Cursor c = getContentResolver().query(CallLog.Calls.CONTENT_URI, cols, null, null,
+                CallLog.Calls.DATE + " DESC")) {
+            if (c == null || !c.moveToFirst()) return;
+            String num = c.getString(0);
+            int type = c.getInt(1);
+            long dur = c.getLong(2);
+            int pres = c.getInt(3);
+            String dir;
+            switch (type) {
+                case CallLog.Calls.INCOMING_TYPE: dir = "in entrata da"; break;
+                case CallLog.Calls.OUTGOING_TYPE: dir = "in uscita verso"; break;
+                case CallLog.Calls.MISSED_TYPE: dir = "persa da"; break;
+                case CallLog.Calls.REJECTED_TYPE: dir = "rifiutata da"; break;
+                default: dir = "con";
+            }
+            if (pres != CallLog.Calls.PRESENTATION_ALLOWED) num = null;
+            EventLog.add(this, EventLog.INFO, "Chiamata " + dir + " " + NumberInfo.describe(this, num)
+                    + " · durata " + (dur / 60) + ":" + String.format(java.util.Locale.ITALY, "%02d", dur % 60));
+        } catch (Exception ignored) {
         }
     }
 
@@ -347,6 +418,8 @@ public class CallMonitorService extends Service {
                 NotificationManager.IMPORTANCE_HIGH);
         a.enableVibration(true);
         nm.createNotificationChannel(a);
+        nm.createNotificationChannel(new NotificationChannel(CH_CALLER, "Chi chiama",
+                NotificationManager.IMPORTANCE_DEFAULT));
     }
 
     private Notification statusNotification(String text) {

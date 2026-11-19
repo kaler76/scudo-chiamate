@@ -4,6 +4,9 @@
 
     <!-- Stato della chiamata e tipo di rete -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- Numero di chi chiama, registro chiamate e nome in rubrica -->
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     <!-- Facoltativo: identificativo della cella (ripetitore) durante la chiamata -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

@@ -1,9 +1,11 @@
 package it.scudo.chiamate;
 
 import android.app.Activity;
-import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Bundle;
+import android.view.Gravity;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 
 import java.util.List;
 
@@ -14,13 +16,11 @@ public class LogActivity extends Activity {
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         LinearLayout col = Ui.page(this);
-        Ui.title(this, col, "Registro");
-        Ui.text(this, col, "Cosa è successo durante le chiamate controllate e le scansioni."
-                + " Le voci più recenti sono in alto.", 14, Ui.GREY);
-        Ui.button(this, col, "Svuota registro", v -> { EventLog.clear(this); render(); });
+        Ui.header(this, col, "Registro", "Chiamate controllate, avvisi e scansioni. I più recenti in alto.");
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         col.addView(list);
+        Ui.button(this, col, "Svuota registro", v -> { EventLog.clear(this); render(); });
     }
 
     @Override protected void onResume() {
@@ -32,17 +32,22 @@ public class LogActivity extends Activity {
         list.removeAllViews();
         List<String[]> rows = EventLog.read(this);
         if (rows.isEmpty()) {
-            Ui.text(this, list, "Nessun evento registrato.", 15, Ui.GREY);
+            TextView t = Ui.text(this, list, "Nessun evento registrato.\nAttiva la protezione e fai una chiamata di prova.",
+                    15, Ui.SUB);
+            t.setGravity(Gravity.CENTER);
+            t.setPadding(0, Ui.dp(this, 40), 0, Ui.dp(this, 40));
             return;
         }
         int shown = 0;
         for (String[] r : rows) {
             if (shown++ >= 400) break;
-            int color = EventLog.ALERT.equals(r[1]) ? Ui.RED
-                    : EventLog.WARN.equals(r[1]) ? Ui.ORANGE : Ui.GREY;
+            boolean alert = EventLog.ALERT.equals(r[1]);
+            boolean warn = EventLog.WARN.equals(r[1]);
+            int color = alert ? Ui.RED : warn ? Ui.ORANGE : Ui.ACCENT;
             LinearLayout card = Ui.card(this, list, color);
-            Ui.text(this, card, r[0] + "  ·  " + r[1], 12, color);
-            Ui.text(this, card, r[2], 15, Color.BLACK);
+            TextView meta = Ui.text(this, card, r[0] + "   " + (alert ? "ALLARME" : warn ? "ATTENZIONE" : "INFO"), 12, color);
+            meta.setTypeface(Typeface.DEFAULT_BOLD);
+            Ui.text(this, card, r[2], 15, Ui.TEXT);
         }
     }
 }
