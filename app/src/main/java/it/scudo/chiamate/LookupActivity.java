@@ -34,6 +34,17 @@ public class LookupActivity extends Activity {
         num.setTextIsSelectable(true);
         Ui.text(this, card, NumberInfo.describe(this, raw), 14, Ui.SUB);
 
+        String intl = international(raw);
+        Ui.sectionLabel(this, col, "Profili collegati al numero");
+        Ui.text(this, col, "Se la persona usa WhatsApp o Telegram con questo numero, spesso vedi foto profilo, nome e"
+                + " info (dipende dalle sue impostazioni di privacy). Il numero non viene salvato in rubrica.", 13, Ui.SUB);
+        Ui.menuRow(this, col, R.drawable.ic_chat, Ui.GREEN, "Apri su WhatsApp",
+                "Foto profilo, nome e info, senza salvare il contatto",
+                v -> open("https://wa.me/" + intl));
+        Ui.menuRow(this, col, R.drawable.ic_chat, Ui.ACCENT, "Apri su Telegram",
+                "Solo se la persona permette di essere trovata col numero",
+                v -> open("https://t.me/+" + intl));
+
         Ui.sectionLabel(this, col, "Cerca chi è");
         Ui.text(this, col, "Questi siti raccolgono le segnalazioni delle persone: se il numero è di un call center,"
                 + " di una truffa o di un'azienda, di solito lo trovi lì.", 13, Ui.SUB);
@@ -46,6 +57,11 @@ public class LookupActivity extends Activity {
         Ui.menuRow(this, col, R.drawable.ic_info, Ui.GREEN, "Cerca nei siti di segnalazione italiani",
                 "chi-chiama, chistachiamando e altri",
                 v -> open("https://www.google.com/search?q=" + Uri.encode(national + " chi chiama segnalazioni")));
+        if (national.startsWith("0")) {
+            Ui.menuRow(this, col, R.drawable.ic_list, Ui.SUB, "Pagine Bianche",
+                    "Per i numeri fissi in elenco: nome e indirizzo dell'intestatario",
+                    v -> open("https://www.google.com/search?q=" + Uri.encode("site:paginebianche.it \"" + national + "\"")));
+        }
         Ui.menuRow(this, col, R.drawable.ic_phone, Ui.SUB, "Copia il numero",
                 "Per incollarlo in Hiya, Truecaller o WhatsApp", v -> {
                     getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("numero", raw));
@@ -67,5 +83,13 @@ public class LookupActivity extends Activity {
         if (n.startsWith("0039")) n = n.substring(4);
         else if (n.startsWith("+39")) n = n.substring(3);
         return n;
+    }
+
+    /** Formato internazionale senza "+", come lo vogliono WhatsApp e Telegram (Italia se manca il prefisso). */
+    static String international(String raw) {
+        String n = raw.replaceAll("[^0-9+]", "");
+        if (n.startsWith("+")) return n.substring(1);
+        if (n.startsWith("00")) return n.substring(2);
+        return "39" + n;
     }
 }

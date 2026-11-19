@@ -68,6 +68,8 @@ public class CallMonitorService extends Service {
     private final Set<String> seenRecorders = new HashSet<>();
     private int alertId = 100;
     private String lastRingingNumber = null;
+    /** Chiamata in corso (o appena squillata): tutto finisce in un'unica voce del registro. */
+    private CallStore.Call cur = null;
     private static final String CH_CALLER = "chiamante";
     private static final int ID_CALLER = 2;
 
@@ -209,8 +211,9 @@ public class CallMonitorService extends Service {
 
     private void onCallState(int state) {
         if (state == TelephonyManager.CALL_STATE_RINGING) {
-            EventLog.add(this, EventLog.INFO, "Chiamata in arrivo");
+            if (cur == null) newCall(false);
         } else if (state == TelephonyManager.CALL_STATE_OFFHOOK && !inCall) {
+            if (cur == null) newCall(false);
             inCall = true;
             callStart = System.currentTimeMillis();
             seenRecorders.clear();
@@ -218,28 +221,64 @@ public class CallMonitorService extends Service {
             lastCell = null;
             cellChanges = 0;
             alertsThisCall = 0;
-            EventLog.add(this, EventLog.INFO, "Chiamata iniziata: avvio controlli");
             updateStatus("Chiamata in corso: controllo microfono e rete");
             handler.post(poll);
-        } else if (state == TelephonyManager.CALL_STATE_IDLE && inCall) {
-            inCall = false;
-            handler.removeCallbacks(poll);
-            long secs = (System.currentTimeMillis() - callStart) / 1000;
-            String esito = alertsThisCall == 0
-                    ? "nessun segnale sospetto"
-                    : alertsThisCall + " segnalazioni (vedi sopra)";
-            EventLog.add(this, alertsThisCall == 0 ? EventLog.INFO : EventLog.WARN,
-                    "Chiamata terminata (" + secs + " s, cambi di cella: " + cellChanges + "): " + esito);
-            updateStatus("Protezione attiva: controllo le chiamate");
-            handler.postDelayed(this::logLastCall, 2500);
+        } else if (state == TelephonyManager.CALL_STATE_IDLE) {
+            if (inCall) {
+                inCall = false;
+                handler.removeCallbacks(poll);
+                updateStatus("Protezione attiva: controllo le chiamate");
+            }
+            if (cur != null) {
+                CallStore.Call done = cur;
+                cur = null;
+                done.end = System.currentTimeMillis();
+                handler.postDelayed(() -> finishCall(done), 2500);
+            }
         }
+    }
+
+    private void newCall(boolean voip) {
+        cur = new CallStore.Call();
+        cur.start = System.currentTimeMillis();
+        cur.voip = voip;
+        if (!voip && lastRingingNumber != null) cur.number = lastRingingNumber;
+    }
+
+    /** Completa la voce con i dati del registro chiamate di Android (numero, direzione, durata) e la salva. */
+    private void finishCall(CallStore.Call c) {
+        if (!c.voip && checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) {
+            String[] cols = {CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DURATION,
+                    CallLog.Calls.NUMBER_PRESENTATION, CallLog.Calls.DATE};
+            try (Cursor q = getContentResolver().query(CallLog.Calls.CONTENT_URI, cols, null, null,
+                    CallLog.Calls.DATE + " DESC")) {
+                if (q != null && q.moveToFirst() && Math.abs(q.getLong(4) - c.start) < 120_000) {
+                    c.number = q.getInt(3) == CallLog.Calls.PRESENTATION_ALLOWED ? q.getString(0) : null;
+                    c.durationSec = q.getLong(2);
+                    switch (q.getInt(1)) {
+                        case CallLog.Calls.INCOMING_TYPE: c.dir = CallStore.IN; break;
+                        case CallLog.Calls.OUTGOING_TYPE: c.dir = CallStore.OUT; break;
+                        case CallLog.Calls.MISSED_TYPE: c.dir = CallStore.MISSED; break;
+                        case CallLog.Calls.REJECTED_TYPE: c.dir = CallStore.REJECTED; break;
+                        case CallLog.Calls.BLOCKED_TYPE: c.dir = CallStore.BLOCKED; break;
+                        default: c.dir = CallStore.UNKNOWN;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (c.durationSec == 0 && c.end > c.start && !CallStore.MISSED.equals(c.dir)
+                && !CallStore.REJECTED.equals(c.dir) && !CallStore.BLOCKED.equals(c.dir)) {
+            c.durationSec = (c.end - c.start) / 1000;
+        }
+        CallStore.save(this, c);
     }
 
     // ------------------------------------------------------------- chiamante
 
     private void showCaller(String num) {
         String info = NumberInfo.describe(this, num);
-        EventLog.add(this, EventLog.INFO, "Chiamata in arrivo da " + info, num);
+        if (cur != null && cur.number == null) cur.number = num;
         Intent look = new Intent(this, LookupActivity.class)
                 .putExtra(LookupActivity.EXTRA_NUMBER, num)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
@@ -256,33 +295,6 @@ public class CallMonitorService extends Service {
                 .setAutoCancel(true)
                 .build();
         getSystemService(NotificationManager.class).notify(ID_CALLER, n);
-    }
-
-    /** Dopo la chiamata legge l'ultima voce del registro: numero, direzione, durata. */
-    private void logLastCall() {
-        if (checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) return;
-        String[] cols = {CallLog.Calls.NUMBER, CallLog.Calls.TYPE, CallLog.Calls.DURATION,
-                CallLog.Calls.NUMBER_PRESENTATION};
-        try (Cursor c = getContentResolver().query(CallLog.Calls.CONTENT_URI, cols, null, null,
-                CallLog.Calls.DATE + " DESC")) {
-            if (c == null || !c.moveToFirst()) return;
-            String num = c.getString(0);
-            int type = c.getInt(1);
-            long dur = c.getLong(2);
-            int pres = c.getInt(3);
-            String dir;
-            switch (type) {
-                case CallLog.Calls.INCOMING_TYPE: dir = "in entrata da"; break;
-                case CallLog.Calls.OUTGOING_TYPE: dir = "in uscita verso"; break;
-                case CallLog.Calls.MISSED_TYPE: dir = "persa da"; break;
-                case CallLog.Calls.REJECTED_TYPE: dir = "rifiutata da"; break;
-                default: dir = "con";
-            }
-            if (pres != CallLog.Calls.PRESENTATION_ALLOWED) num = null;
-            EventLog.add(this, EventLog.INFO, "Chiamata " + dir + " " + NumberInfo.describe(this, num)
-                    + " · durata " + (dur / 60) + ":" + String.format(java.util.Locale.ITALY, "%02d", dur % 60), num);
-        } catch (Exception ignored) {
-        }
     }
 
     // -------------------------------------------------------------- microfono
@@ -343,10 +355,10 @@ public class CallMonitorService extends Service {
                 alert(EventLog.ALERT, "La chiamata è passata su rete 2G (" + name + "). Il 2G ha una cifratura debole"
                         + " ed è la rete usata dai falsi ripetitori (IMSI catcher). Può succedere anche per"
                         + " semplice scarsa copertura: è un indizio, non una prova.");
-            } else if (lastNetType != -1) {
-                EventLog.add(this, EventLog.INFO, "Rete della chiamata cambiata: " + name);
-            } else {
-                EventLog.add(this, EventLog.INFO, "Rete della chiamata: " + name);
+            }
+            if (cur != null) {
+                if (cur.network == null) cur.network = name;
+                if (cur.networks.isEmpty() || !cur.networks.get(cur.networks.size() - 1).equals(name)) cur.networks.add(name);
             }
             lastNetType = net;
         }
@@ -361,13 +373,13 @@ public class CallMonitorService extends Service {
         if (cell == null) return;
         if (lastCell != null && !cell.equals(lastCell)) {
             cellChanges++;
-            EventLog.add(this, EventLog.INFO, "Cambio cella durante la chiamata: " + cell);
+            if (cur != null) cur.cells.add(cell);
             if (cellChanges == 4) {
                 alert(EventLog.WARN, "Molti cambi di cella in questa chiamata. Normale se sei in movimento,"
                         + " sospetto se sei fermo.");
             }
         } else if (lastCell == null) {
-            EventLog.add(this, EventLog.INFO, "Cella iniziale: " + cell);
+            if (cur != null) cur.cells.add(cell);
         }
         lastCell = cell;
     }
@@ -429,7 +441,8 @@ public class CallMonitorService extends Service {
 
     private void alert(String level, String msg) {
         alertsThisCall++;
-        EventLog.add(this, level, msg);
+        if (cur != null) cur.alerts.add(new String[]{level, msg});
+        EventLog.add(this, level, msg, cur != null ? cur.number : null);
         NotificationManager nm = getSystemService(NotificationManager.class);
         Notification n = new Notification.Builder(this, CH_ALERT)
                 .setSmallIcon(R.drawable.ic_notif)
@@ -495,16 +508,19 @@ public class CallMonitorService extends Service {
             voipOwnerSession = -1;
             seenRecorders.clear();
             alertsThisCall = 0;
-            EventLog.add(this, EventLog.INFO, "Chiamata via internet iniziata (WhatsApp o app simile): avvio controlli");
+            newCall(true);
+            cur.dir = CallStore.UNKNOWN;
             updateStatus("Chiamata WhatsApp/internet: controllo il microfono");
             handler.postDelayed(voipPoll, 1500);
         } else if (mode != AudioManager.MODE_IN_COMMUNICATION && inVoip) {
             inVoip = false;
             handler.removeCallbacks(voipPoll);
-            long secs = (System.currentTimeMillis() - voipStart) / 1000;
-            EventLog.add(this, alertsThisCall == 0 ? EventLog.INFO : EventLog.WARN,
-                    "Chiamata via internet terminata (" + secs + " s): "
-                            + (alertsThisCall == 0 ? "nessun'altra app ha usato il microfono" : alertsThisCall + " segnalazioni"));
+            if (cur != null && cur.voip) {
+                cur.end = System.currentTimeMillis();
+                cur.durationSec = (cur.end - voipStart) / 1000;
+                CallStore.save(this, cur);
+                cur = null;
+            }
             updateStatus("Protezione attiva: controllo le chiamate");
         }
     }

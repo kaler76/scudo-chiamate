@@ -101,7 +101,7 @@ final class NumberInfo {
         return "tipo non riconosciuto";
     }
 
-    private static String contactName(Context ctx, String number) {
+    static String contactName(Context ctx, String number) {
         if (ctx.checkSelfPermission(Manifest.permission.READ_CONTACTS) != PackageManager.PERMISSION_GRANTED) {
             return null;
         }

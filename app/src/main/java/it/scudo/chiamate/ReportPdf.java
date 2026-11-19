@@ -106,8 +106,31 @@ final class ReportPdf {
             text("Controllo non riuscito: " + e, body, 4);
         }
 
+        // ---------------- chiamate
+        section("Chiamate controllate — dalla più recente");
+        List<CallStore.Call> calls = CallStore.read(ctx);
+        if (calls.isEmpty()) text("Nessuna chiamata registrata.", body, 4);
+        SimpleDateFormat df = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.ITALY);
+        int k = 0;
+        for (CallStore.Call cl : calls) {
+            if (k++ >= 400) { text("… (elenco troncato alle ultime 400 chiamate)", small, 2); break; }
+            String nm = cl.number != null ? NumberInfo.contactName(ctx, cl.number) : null;
+            String who = cl.voip ? "chiamata via internet (WhatsApp o simili)"
+                    : (cl.number == null ? "numero nascosto" : cl.number + (nm != null ? " (" + nm + ")" : "")
+                    + " – " + NumberInfo.kind(cl.number));
+            String dir = cl.voip ? "" : CallStore.IN.equals(cl.dir) ? "ENTRATA " : CallStore.OUT.equals(cl.dir) ? "USCITA "
+                    : CallStore.MISSED.equals(cl.dir) ? "PERSA " : CallStore.REJECTED.equals(cl.dir) ? "RIFIUTATA "
+                    : CallStore.BLOCKED.equals(cl.dir) ? "BLOCCATA " : "";
+            text(df.format(new Date(cl.start)) + "  " + dir + who + "  · durata " + LogActivity.dur(cl.durationSec)
+                    + (cl.network != null ? "  · rete " + String.join(" → ", cl.networks) : ""),
+                    cl.hasAlarm() ? red : body, 0);
+            if (!cl.cells.isEmpty()) text("   celle del telefono: " + String.join(" → ", cl.cells), small, 0);
+            for (String[] a : cl.alerts) text("   " + a[0] + ": " + a[1], EventLog.ALERT.equals(a[0]) ? red : orange, 0);
+            y += 3;
+        }
+
         // ---------------- registro
-        section("Registro eventi (chiamate, allarmi, controlli) — dal più recente");
+        section("Registro eventi (allarmi, controlli) — dal più recente");
         List<String[]> rows = EventLog.read(ctx);
         if (rows.isEmpty()) text("Nessun evento registrato.", body, 4);
         int n = 0;
