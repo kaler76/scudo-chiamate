@@ -49,9 +49,13 @@ public class TrafficActivity extends Activity {
         wait.setGravity(Gravity.CENTER);
         wait.setPadding(0, Ui.dp(this, 40), 0, Ui.dp(this, 40));
         new Thread(() -> {
-            List<TrafficAnalyzer.AppTraffic> list = TrafficAnalyzer.analyze(getApplicationContext());
-            Results.saveTraffic(getApplicationContext(), list);
-            runOnUiThread(() -> render(list));
+            try {
+                List<TrafficAnalyzer.AppTraffic> list = TrafficAnalyzer.analyze(getApplicationContext());
+                Results.saveTraffic(getApplicationContext(), list);
+                runOnUiThread(() -> render(list));
+            } catch (Exception e) {
+                runOnUiThread(() -> Ui.showError(this, body, e));
+            }
         }).start();
     }
 

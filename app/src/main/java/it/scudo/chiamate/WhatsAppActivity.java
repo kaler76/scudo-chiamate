@@ -56,8 +56,14 @@ public class WhatsAppActivity extends Activity {
             Ui.text(this, auto, "WhatsApp non è installato su questo telefono.", 14, Ui.SUB);
         }
         new Thread(() -> {
-            List<DeviceAudit.Check> checks = WhatsAppCheck.run(getApplicationContext());
-            Results.saveWhatsApp(getApplicationContext(), checks, guidedDone() == 2);
+            List<DeviceAudit.Check> checks;
+            try {
+                checks = WhatsAppCheck.run(getApplicationContext());
+                Results.saveWhatsApp(getApplicationContext(), checks, guidedDone() == 2);
+            } catch (Exception e) {
+                runOnUiThread(() -> Ui.showError(this, auto, e));
+                return;
+            }
             runOnUiThread(() -> {
                 for (int want = 2; want >= 0; want--) {
                     for (DeviceAudit.Check k : checks) {

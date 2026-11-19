@@ -32,9 +32,13 @@ public class AuditActivity extends Activity {
     private void load() {
         body.removeAllViews();
         new Thread(() -> {
-            List<DeviceAudit.Check> checks = DeviceAudit.run(getApplicationContext());
-            Results.saveAudit(getApplicationContext(), checks);
-            runOnUiThread(() -> render(checks));
+            try {
+                List<DeviceAudit.Check> checks = DeviceAudit.run(getApplicationContext());
+                Results.saveAudit(getApplicationContext(), checks);
+                runOnUiThread(() -> render(checks));
+            } catch (Exception e) {
+                runOnUiThread(() -> Ui.showError(this, body, e));
+            }
         }).start();
     }
 

@@ -363,4 +363,16 @@ final class Ui {
         parent.addView(t);
         return t;
     }
+
+    /** Riquadro di errore al posto di una chiusura dell'app. */
+    static void showError(Activity a, LinearLayout parent, Exception e) {
+        parent.removeAllViews();
+        LinearLayout c = card(a, parent, RED);
+        TextView t = text(a, c, "Questo controllo non è riuscito", 16, RED);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        text(a, c, "Fai uno screenshot e mandalo allo sviluppatore.", 13, SUB);
+        TextView d = text(a, c, String.valueOf(e), 11, TEXT);
+        d.setTypeface(Typeface.MONOSPACE);
+        d.setTextIsSelectable(true);
+    }
 }

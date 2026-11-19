@@ -37,10 +37,14 @@ public class ScanActivity extends Activity {
         t.setGravity(Gravity.CENTER);
         t.setPadding(0, Ui.dp(this, 40), 0, Ui.dp(this, 40));
         new Thread(() -> {
-            List<AppScanner.Result> r = AppScanner.scan(getApplicationContext(),
-                    (d, tot) -> runOnUiThread(() -> t.setText("Analizzo le app… " + d + " / " + tot)));
-            Results.saveApps(getApplicationContext(), r);
-            runOnUiThread(() -> { last = r; render(); });
+            try {
+                List<AppScanner.Result> r = AppScanner.scan(getApplicationContext(),
+                        (d, tot) -> runOnUiThread(() -> t.setText("Analizzo le app… " + d + " / " + tot)));
+                Results.saveApps(getApplicationContext(), r);
+                runOnUiThread(() -> { last = r; render(); });
+            } catch (Exception e) {
+                runOnUiThread(() -> { results.removeAllViews(); Ui.showError(this, results, e); });
+            }
         }).start();
     }
 

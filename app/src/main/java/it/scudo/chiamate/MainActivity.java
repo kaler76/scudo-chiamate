@@ -195,18 +195,26 @@ public class MainActivity extends Activity {
         fullBtn.setText("Analisi app…");
         fullBtn.setEnabled(false);
         new Thread(() -> {
-            List<AppScanner.Result> apps = AppScanner.scan(getApplicationContext(),
-                    (d, t) -> runOnUiThread(() -> fullBtn.setText("Analisi app " + (100 * d / Math.max(1, t)) + "%")));
-            Results.saveApps(this, apps);
+            try {
+                List<AppScanner.Result> apps = AppScanner.scan(getApplicationContext(),
+                        (d, t) -> runOnUiThread(() -> fullBtn.setText("Analisi app " + (100 * d / Math.max(1, t)) + "%")));
+                Results.saveApps(this, apps);
+            } catch (Exception e) { logError("app spia", e); }
             runOnUiThread(() -> fullBtn.setText("Sicurezza del telefono…"));
-            Results.saveAudit(this, DeviceAudit.run(getApplicationContext()));
+            try {
+                Results.saveAudit(this, DeviceAudit.run(getApplicationContext()));
+            } catch (Exception e) { logError("sicurezza telefono", e); }
             runOnUiThread(() -> fullBtn.setText("WhatsApp…"));
-            Results.saveWhatsApp(this, WhatsAppCheck.run(getApplicationContext()),
-                    getSharedPreferences("whatsapp", MODE_PRIVATE).getLong("linked", 0) > 0
-                            && getSharedPreferences("whatsapp", MODE_PRIVATE).getLong("twostep", 0) > 0);
+            try {
+                Results.saveWhatsApp(this, WhatsAppCheck.run(getApplicationContext()),
+                        getSharedPreferences("whatsapp", MODE_PRIVATE).getLong("linked", 0) > 0
+                                && getSharedPreferences("whatsapp", MODE_PRIVATE).getLong("twostep", 0) > 0);
+            } catch (Exception e) { logError("WhatsApp", e); }
             if (TrafficAnalyzer.hasAccess(this)) {
                 runOnUiThread(() -> fullBtn.setText("Traffico dati…"));
-                Results.saveTraffic(this, TrafficAnalyzer.analyze(getApplicationContext()));
+                try {
+                    Results.saveTraffic(this, TrafficAnalyzer.analyze(getApplicationContext()));
+                } catch (Exception e) { logError("traffico dati", e); }
             } else {
                 Results.save(this, Results.TRAFFIC, -1, "Tocca per dare il permesso");
             }
@@ -228,6 +236,10 @@ public class MainActivity extends Activity {
                 }
             });
         }).start();
+    }
+
+    private void logError(String step, Exception e) {
+        EventLog.add(this, EventLog.WARN, "Errore nel controllo " + step + ": " + e);
     }
 
     private void finishFull() {

@@ -83,13 +83,21 @@ final class TrafficAnalyzer {
         for (Map.Entry<Integer, long[]> e : byUid.entrySet()) {
             int uid = e.getKey();
             if (uid < Process.FIRST_APPLICATION_UID || uid == Process.myUid()) continue;
-            String[] pkgs = pm.getPackagesForUid(uid);
+            // Traffico di altri profili (Cartella protetta, Dual Messenger, profilo lavoro):
+            // Android non permette di sapere a quale app appartiene, quindi si salta.
+            if (uid / 100000 != Process.myUid() / 100000) continue;
+            String[] pkgs;
+            try {
+                pkgs = pm.getPackagesForUid(uid);
+            } catch (Exception ex) {
+                continue;
+            }
             if (pkgs == null || pkgs.length == 0) continue;
             String pkg = pkgs[0];
             ApplicationInfo ai;
             try {
                 ai = pm.getApplicationInfo(pkg, 0);
-            } catch (PackageManager.NameNotFoundException ex) {
+            } catch (Exception ex) {
                 continue;
             }
             if ((ai.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0) continue;
