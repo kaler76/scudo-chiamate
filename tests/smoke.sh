@@ -10,13 +10,16 @@ adb shell appops set $P android:get_usage_stats allow || true
 adb logcat -c
 adb shell am start -W -n $P/.MainActivity
 sleep 6
-for t in app sicurezza whatsapp traffico registro consigli deviazioni protezione; do
+for t in app sicurezza whatsapp traffico registro consigli deviazioni chi pdf protezione; do
   echo "=== TEST $t"
+  adb shell am force-stop $P; sleep 1
   adb shell am start -W -n $P/.MainActivity --es test $t
   sleep 12
   adb shell input keyevent KEYCODE_BACK
   sleep 2
 done
+echo "=== FILE PDF"
+adb shell ls -la /sdcard/Download/ || true
 echo "=== TEST completa"
 adb shell am start -W -n $P/.MainActivity --es test completa
 sleep 70

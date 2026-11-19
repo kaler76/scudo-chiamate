@@ -25,9 +25,15 @@ final class EventLog {
 
     private EventLog() {}
 
-    static synchronized void add(Context ctx, String level, String text) {
+    static void add(Context ctx, String level, String text) {
+        add(ctx, level, text, null);
+    }
+
+    /** number: numero di telefono collegato all'evento (per "Chi è questo numero?"), può essere null. */
+    static synchronized void add(Context ctx, String level, String text, String number) {
         String ts = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.ITALY).format(new Date());
-        String line = ts + "|" + level + "|" + text.replace('\n', ' ').replace('|', '/');
+        String line = ts + "|" + level + "|" + text.replace('\n', ' ').replace('|', '/')
+                + (number != null && !number.isEmpty() ? "|" + number.replace('|', ' ') : "");
         File f = new File(ctx.getFilesDir(), FILE);
         try (FileWriter w = new FileWriter(f, true)) {
             w.write(line);
@@ -37,7 +43,7 @@ final class EventLog {
         trimIfNeeded(f);
     }
 
-    /** Righe più recenti per prime. Ogni riga: {data, livello, testo}. */
+    /** Righe più recenti per prime. Ogni riga: {data, livello, testo, numero o null}. */
     static synchronized List<String[]> read(Context ctx) {
         List<String[]> out = new ArrayList<>();
         File f = new File(ctx.getFilesDir(), FILE);
@@ -45,8 +51,9 @@ final class EventLog {
         try (BufferedReader r = new BufferedReader(new FileReader(f))) {
             String line;
             while ((line = r.readLine()) != null) {
-                String[] parts = line.split("\\|", 3);
-                if (parts.length == 3) out.add(parts);
+                String[] parts = line.split("\\|", 4);
+                if (parts.length == 3) out.add(new String[]{parts[0], parts[1], parts[2], null});
+                else if (parts.length == 4) out.add(parts);
             }
         } catch (IOException ignored) {
         }

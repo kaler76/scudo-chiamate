@@ -239,8 +239,15 @@ public class CallMonitorService extends Service {
 
     private void showCaller(String num) {
         String info = NumberInfo.describe(this, num);
-        EventLog.add(this, EventLog.INFO, "Chiamata in arrivo da " + info);
+        EventLog.add(this, EventLog.INFO, "Chiamata in arrivo da " + info, num);
+        Intent look = new Intent(this, LookupActivity.class)
+                .putExtra(LookupActivity.EXTRA_NUMBER, num)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        PendingIntent lookPi = PendingIntent.getActivity(this, 77, look,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification n = new Notification.Builder(this, CH_CALLER)
+                .setContentIntent(lookPi)
+                .addAction(new Notification.Action.Builder(null, "Chi è questo numero?", lookPi).build())
                 .setSmallIcon(R.drawable.ic_notif)
                 .setContentTitle("Chi ti sta chiamando")
                 .setContentText(info)
@@ -273,7 +280,7 @@ public class CallMonitorService extends Service {
             }
             if (pres != CallLog.Calls.PRESENTATION_ALLOWED) num = null;
             EventLog.add(this, EventLog.INFO, "Chiamata " + dir + " " + NumberInfo.describe(this, num)
-                    + " · durata " + (dur / 60) + ":" + String.format(java.util.Locale.ITALY, "%02d", dur % 60));
+                    + " · durata " + (dur / 60) + ":" + String.format(java.util.Locale.ITALY, "%02d", dur % 60), num);
         } catch (Exception ignored) {
         }
     }

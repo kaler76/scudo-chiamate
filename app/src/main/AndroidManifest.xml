@@ -49,6 +49,7 @@
         <activity android:name=".TrafficActivity" android:exported="false" />
         <activity android:name=".AuditActivity" android:exported="false" />
         <activity android:name=".WhatsAppActivity" android:exported="false" />
+        <activity android:name=".LookupActivity" android:exported="false" />
 
         <service
             android:name=".CallMonitorService"

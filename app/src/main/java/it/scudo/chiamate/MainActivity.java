@@ -72,6 +72,9 @@ public class MainActivity extends Activity {
 
         // ---------------------------------------------------------------- altro
         Ui.sectionLabel(this, col, "Altro");
+        Ui.menuRow(this, col, R.drawable.ic_list, Ui.ACCENT, "Rapporto PDF",
+                "Chiamate, allarmi e controlli da portare a polizia o avvocato",
+                v -> startActivity(new Intent(this, LogActivity.class)));
         Ui.menuRow(this, col, R.drawable.ic_bulb, Ui.ORANGE, "Consigli e limiti",
                 "Cosa si può scoprire e cosa no", v -> startActivity(new Intent(this, TipsActivity.class)));
 
@@ -126,6 +129,8 @@ public class MainActivity extends Activity {
             case "deviazioni": startActivity(new Intent(this, ForwardActivity.class)); break;
             case "registro": startActivity(new Intent(this, LogActivity.class)); break;
             case "consigli": startActivity(new Intent(this, TipsActivity.class)); break;
+            case "chi": startActivity(new Intent(this, LookupActivity.class).putExtra(LookupActivity.EXTRA_NUMBER, "+390541123456")); break;
+            case "pdf": try { ReportPdf.create(getApplicationContext()); EventLog.add(this, EventLog.INFO, "Test PDF ok"); } catch (Exception e) { throw new RuntimeException(e); } break;
             case "protezione": CallMonitorService.start(this); break;
             case "completa": runFull(); break;
             default: break;
