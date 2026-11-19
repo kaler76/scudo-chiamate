@@ -37,6 +37,16 @@ adb shell am force-stop $P; sleep 1; adb shell am start -W -n $P/.MainActivity -
 sleep 5
 echo "=== ELENCO UNITO"
 adb shell run-as $P cat files/test_elenco.txt || true
+echo "=== REGISTRO CON MOLTE CHIAMATE"
+NOW=$(($(date +%s)*1000))
+for i in $(seq 1 400); do
+  adb shell content insert --uri content://call_log/calls --bind number:s:33300$((i % 120)) --bind type:i:$((i % 3 + 1)) --bind duration:l:$((i % 90)) --bind date:l:$((NOW - i * 3600000)) >/dev/null 2>&1
+done
+adb shell am force-stop $P; sleep 1
+adb shell am start -W -n $P/.MainActivity --es test registro
+sleep 15
+adb shell dumpsys activity processes | grep -i "anr\|not responding" | head -5 || true
+adb logcat -d | grep -i "ANR in it.scudo" | head -5 || echo "nessun blocco (ANR)"
 echo "=== RIAVVIO DOPO AGGIORNAMENTO"
 adb install -r ScudoChiamate.apk
 sleep 8

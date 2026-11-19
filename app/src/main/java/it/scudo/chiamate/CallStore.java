@@ -19,6 +19,8 @@ final class CallStore {
             UNKNOWN = "?";
     private static final String FILE = "chiamate.jsonl";
     private static final int MAX = 1500;
+    /** Il registro mostra solo gli ultimi 30 giorni. */
+    static final int DAYS = 30;
 
     static final class Call {
         long start, end, durationSec;
@@ -129,10 +131,13 @@ final class CallStore {
         List<Call> mon = read(ctx);
         List<Call> out = new ArrayList<>();
         boolean[] used = new boolean[mon.size()];
-        for (PhoneHistory.Entry e : PhoneHistory.read(ctx, 1500)) {
+        long since = System.currentTimeMillis() - DAYS * 86_400_000L;
+        for (PhoneHistory.Entry e : PhoneHistory.read(ctx, 600)) {
+            if (e.date < since) break;
             Call match = null;
             for (int i = 0; i < mon.size(); i++) {
                 Call m = mon.get(i);
+                if (m.start < e.date - 120_000) break; // entrambe le liste vanno dal più recente
                 if (used[i] || m.voip || Math.abs(m.start - e.date) > 120_000) continue;
                 if (m.number != null && e.number != null && !PhoneHistory.same(m.number, e.number)) continue;
                 match = m; used[i] = true; break;
@@ -148,7 +153,7 @@ final class CallStore {
             match.durationSec = e.duration;
             out.add(match);
         }
-        for (int i = 0; i < mon.size(); i++) if (!used[i]) out.add(mon.get(i));
+        for (int i = 0; i < mon.size(); i++) if (!used[i] && mon.get(i).start >= since) out.add(mon.get(i));
         java.util.Collections.sort(out, (a, b) -> Long.compare(b.start, a.start));
         return out;
     }

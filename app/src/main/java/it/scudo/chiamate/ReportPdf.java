@@ -107,7 +107,7 @@ final class ReportPdf {
         }
 
         // ---------------- chiamate
-        section("Chiamate controllate — dalla più recente");
+        section("Chiamate degli ultimi " + CallStore.DAYS + " giorni — dalla più recente");
         List<CallStore.Call> calls = CallStore.all(ctx);
         if (calls.isEmpty()) text("Nessuna chiamata registrata.", body, 4);
         SimpleDateFormat df = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.ITALY);

@@ -34,14 +34,22 @@ public class LogActivity extends Activity {
     private String query = "";
 
     private LinearLayout tabs, filters, stats, list;
-    private final Map<String, String> nameCache = new HashMap<>();
+    /** Rubrica: ultime 9 cifre → nome. Letta una volta sola. */
+    private Map<String, String> contacts = new HashMap<>();
+    private List<CallStore.Call> calls = new java.util.ArrayList<>();
+    private List<String[]> events = new java.util.ArrayList<>();
+    private Map<String, Integer> unknownCount = new HashMap<>();
+    private boolean loading = false;
+    private int pageSize = 50;
+    private final android.os.Handler ui = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable searchRun = this::render;
     private final SimpleDateFormat hm = new SimpleDateFormat("HH:mm", Locale.ITALY);
     private final SimpleDateFormat day = new SimpleDateFormat("EEEE d MMMM yyyy", Locale.ITALY);
 
     @Override protected void onCreate(Bundle b) {
         super.onCreate(b);
         LinearLayout col = Ui.page(this);
-        Ui.header(this, col, "Registro", null);
+        Ui.header(this, col, "Registro", "Ultimi " + CallStore.DAYS + " giorni");
 
         stats = Ui.hRow(this, col);
         tabs = new LinearLayout(this);
@@ -59,7 +67,12 @@ public class LogActivity extends Activity {
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int c, int d) { }
             @Override public void onTextChanged(CharSequence s, int a, int c, int d) { }
-            @Override public void afterTextChanged(Editable e) { query = e.toString().trim().toLowerCase(Locale.ROOT); render(); }
+            @Override public void afterTextChanged(Editable e) {
+                query = e.toString().trim().toLowerCase(Locale.ROOT);
+                pageSize = 50;
+                ui.removeCallbacks(searchRun);
+                ui.postDelayed(searchRun, 300);
+            }
         });
         col.addView(search, Ui.full(this, 10));
 
@@ -78,16 +91,64 @@ public class LogActivity extends Activity {
         Ui.primary(this, col, "Esporta rapporto PDF", Ui.ACCENT, v -> exportReport(this, (TextView) v));
         Ui.text(this, col, "Chiamate, allarmi e controlli in un documento da portare a forze dell'ordine o avvocato."
                 + " Viene salvato nella cartella Download.", 12, Ui.SUB);
-        Ui.button(this, col, "Svuota registro", v -> {
+        Ui.button(this, col, "Svuota registro dell'app", v -> {
             CallStore.clear(this);
             EventLog.clear(this);
-            render();
+            load();
         });
+        Ui.text(this, col, "Cancella solo i dati di Scudo Chiamate (allarmi, reti, celle), non il registro chiamate del telefono.",
+                11, Ui.SUB);
     }
 
     @Override protected void onResume() {
         super.onResume();
-        render();
+        load();
+    }
+
+    /** Legge chiamate, eventi e rubrica in background, poi disegna. */
+    private void load() {
+        if (loading) return;
+        loading = true;
+        list.removeAllViews();
+        android.widget.ProgressBar pb = new android.widget.ProgressBar(this);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48));
+        lp.gravity = Gravity.CENTER_HORIZONTAL;
+        lp.topMargin = Ui.dp(this, 30);
+        list.addView(pb, lp);
+        new Thread(() -> {
+            Map<String, String> ct = loadContacts();
+            List<CallStore.Call> cl = CallStore.all(getApplicationContext());
+            List<String[]> ev = EventLog.read(getApplicationContext());
+            Map<String, Integer> unk = new HashMap<>();
+            long month = System.currentTimeMillis() - 30L * 86_400_000L;
+            for (CallStore.Call c : cl) {
+                if (c.voip || c.number == null || c.start < month || CallStore.OUT.equals(c.dir)) continue;
+                String k = PhoneHistory.key(c.number);
+                if (ct.containsKey(k)) continue;
+                unk.put(k, unk.containsKey(k) ? unk.get(k) + 1 : 1);
+            }
+            runOnUiThread(() -> {
+                contacts = ct; calls = cl; events = ev; unknownCount = unk;
+                loading = false;
+                render();
+            });
+        }).start();
+    }
+
+    private Map<String, String> loadContacts() {
+        Map<String, String> m = new HashMap<>();
+        if (checkSelfPermission(android.Manifest.permission.READ_CONTACTS) != android.content.pm.PackageManager.PERMISSION_GRANTED) return m;
+        try (android.database.Cursor c = getContentResolver().query(
+                android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                new String[]{android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER,
+                        android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME}, null, null, null)) {
+            while (c != null && c.moveToNext()) {
+                String k = PhoneHistory.key(c.getString(0));
+                if (k != null && !k.isEmpty() && c.getString(1) != null) m.put(k, c.getString(1));
+            }
+        } catch (Exception ignored) {
+        }
+        return m;
     }
 
     // ------------------------------------------------------------------ testata
@@ -95,19 +156,20 @@ public class LogActivity extends Activity {
     private void renderHeader(List<CallStore.Call> calls, List<String[]> events) {
         stats.removeAllViews();
         long today = startOfDay(System.currentTimeMillis());
-        int nToday = 0, nAlarm = 0, nUnknown = 0;
+        long month = System.currentTimeMillis() - 30L * 86_400_000L;
+        int nToday = 0, nAlarm = 0;
         for (CallStore.Call c : calls) {
             if (c.start >= today) nToday++;
-            if (c.warnCount() > 0) nAlarm++;
-            if (!c.voip && name(c.number) == null) nUnknown++;
+            if (c.start >= month && c.warnCount() > 0) nAlarm++;
         }
         Ui.stat(this, stats, String.valueOf(nToday), "chiamate oggi", Ui.ACCENT);
-        Ui.stat(this, stats, String.valueOf(nAlarm), "con allarmi", nAlarm > 0 ? Ui.RED : Ui.SUB);
-        Ui.stat(this, stats, String.valueOf(nUnknown), "non in rubrica", nUnknown > 0 ? Ui.ORANGE : Ui.SUB);
+        Ui.stat(this, stats, String.valueOf(nAlarm), "con allarmi\n(30 giorni)", nAlarm > 0 ? Ui.RED : Ui.SUB);
+        Ui.stat(this, stats, String.valueOf(unknownCount.size()), "sconosciuti\n(30 giorni)",
+                unknownCount.isEmpty() ? Ui.SUB : Ui.ORANGE);
 
         tabs.removeAllViews();
-        segment(tabs, "Chiamate (" + calls.size() + ")", tab == TAB_CALLS, v -> { tab = TAB_CALLS; filter = 0; render(); });
-        segment(tabs, "Avvisi ed eventi (" + events.size() + ")", tab == TAB_EVENTS, v -> { tab = TAB_EVENTS; filter = 0; render(); });
+        segment(tabs, "Chiamate", tab == TAB_CALLS, v -> { tab = TAB_CALLS; filter = 0; pageSize = 50; render(); });
+        segment(tabs, "Avvisi ed eventi", tab == TAB_EVENTS, v -> { tab = TAB_EVENTS; filter = 0; pageSize = 50; render(); });
 
         filters.removeAllViews();
         String[] f = tab == TAB_CALLS
@@ -115,7 +177,7 @@ public class LogActivity extends Activity {
                 : new String[]{"Tutti", "Solo allarmi"};
         for (int i = 0; i < f.length; i++) {
             int idx = i;
-            chip(filters, f[i], filter == i, v -> { filter = idx; render(); });
+            chip(filters, f[i], filter == i, v -> { filter = idx; pageSize = 50; render(); });
         }
     }
 
@@ -152,8 +214,7 @@ public class LogActivity extends Activity {
     // ------------------------------------------------------------------ elenco
 
     private void render() {
-        List<CallStore.Call> calls = CallStore.all(this);
-        List<String[]> events = EventLog.read(this);
+        if (loading) return;
         renderHeader(calls, events);
         list.removeAllViews();
         if (tab == TAB_CALLS) renderCalls(calls); else renderEvents(events);
@@ -166,13 +227,6 @@ public class LogActivity extends Activity {
                     + " permesso \"Registro chiamate\".", 14, Ui.TEXT);
             Ui.link(this, c, "Concedi permesso ›", Ui.ACCENT,
                     v -> requestPermissions(new String[]{android.Manifest.permission.READ_CALL_LOG}, 5));
-        }
-        java.util.Map<String, Integer> unknownCount = new java.util.HashMap<>();
-        long month = System.currentTimeMillis() - 30L * 86_400_000L;
-        for (CallStore.Call c : calls) {
-            if (c.voip || c.number == null || c.start < month || CallStore.OUT.equals(c.dir) || name(c.number) != null) continue;
-            String k = PhoneHistory.key(c.number);
-            unknownCount.put(k, unknownCount.containsKey(k) ? unknownCount.get(k) + 1 : 1);
         }
         long lastDay = -1;
         int shown = 0;
@@ -188,8 +242,8 @@ public class LogActivity extends Activity {
                 String hay = ((nm != null ? nm : "") + " " + (c.number != null ? c.number : "")).toLowerCase(Locale.ROOT);
                 if (!hay.contains(query) && !hay.replace(" ", "").contains(query.replace(" ", ""))) continue;
             }
-            if (shown++ >= 300) {
-                Ui.text(this, list, "Mostrate le ultime 300 chiamate: usa la ricerca per trovare le altre.", 12, Ui.SUB);
+            if (shown++ >= pageSize) {
+                Ui.button(this, list, "Mostra altre 50", v -> { pageSize += 50; render(); });
                 break;
             }
             long d = startOfDay(c.start);
@@ -211,7 +265,7 @@ public class LogActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int code, String[] p, int[] r) {
         super.onRequestPermissionsResult(code, p, r);
-        render();
+        load();
     }
 
     private void callRow(CallStore.Call c, String nm, int repeated) {
@@ -312,10 +366,17 @@ public class LogActivity extends Activity {
             Ui.text(this, d, (al ? "⚠ " : info ? "ℹ " : "! ") + a[1], 13, al ? Ui.RED : info ? Ui.SUB : Ui.ORANGE);
         }
         if (c.number != null && !c.voip) {
-            PhoneHistory.Stats st = PhoneHistory.stats(this, c.number, c.start);
-            Ui.text(this, d, "Prima di questa: " + (st.total + st.out == 0 ? "nessun'altra chiamata in 30 giorni"
-                    : st.total + " in entrata" + (st.missed > 0 ? " (" + st.missed + " senza risposta)" : "")
-                    + ", " + st.out + " in uscita negli ultimi 30 giorni"), 12, Ui.SUB);
+            int tin = 0, tmiss = 0, tout = 0;
+            long from = c.start - 30L * 86_400_000L;
+            for (CallStore.Call o : calls) {
+                if (o == c || o.start >= c.start || o.start < from || !PhoneHistory.same(o.number, c.number)) continue;
+                if (CallStore.OUT.equals(o.dir)) tout++;
+                else if (CallStore.IN.equals(o.dir)) tin++;
+                else tmiss++;
+            }
+            Ui.text(this, d, "Nei 30 giorni prima: " + (tin + tmiss + tout == 0 ? "nessun'altra chiamata con questo numero"
+                    : (tin + tmiss) + " ricevute" + (tmiss > 0 ? " (" + tmiss + " senza risposta)" : "") + ", "
+                    + tout + " fatte da te"), 12, Ui.SUB);
         }
         if (c.number != null) {
             Ui.link(this, d, "Chi è questo numero? ›", Ui.ACCENT, v -> startActivity(
@@ -330,7 +391,10 @@ public class LogActivity extends Activity {
         for (String[] r : events) {
             if (filter == 1 && !EventLog.ALERT.equals(r[1])) continue;
             if (!query.isEmpty() && !(r[2] + " " + (r[3] != null ? r[3] : "")).toLowerCase(Locale.ROOT).contains(query)) continue;
-            if (shown++ >= 300) break;
+            if (shown++ >= pageSize) {
+                Ui.button(this, list, "Mostra altri 50", v -> { pageSize += 50; render(); });
+                break;
+            }
             boolean alert = EventLog.ALERT.equals(r[1]);
             boolean warn = EventLog.WARN.equals(r[1]);
             int color = alert ? Ui.RED : warn ? Ui.ORANGE : Ui.ACCENT;
@@ -357,10 +421,7 @@ public class LogActivity extends Activity {
 
     private String name(String number) {
         if (number == null) return null;
-        if (nameCache.containsKey(number)) return nameCache.get(number);
-        String n = NumberInfo.contactName(this, number);
-        nameCache.put(number, n);
-        return n;
+        return contacts.get(PhoneHistory.key(number));
     }
 
     private static long startOfDay(long t) {
