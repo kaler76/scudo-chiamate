@@ -33,7 +33,7 @@ adb emu gsm cancel 0541999888; sleep 8
 adb emu gsm call 3331234567; sleep 5
 adb emu gsm cancel 3331234567; sleep 8
 adb shell run-as $P cat files/chiamate.jsonl || echo "nessuna chiamata registrata"
-adb shell am start -W -n $P/.MainActivity --es test elenco
+adb shell am force-stop $P; sleep 1; adb shell am start -W -n $P/.MainActivity --es test elenco
 sleep 5
 echo "=== ELENCO UNITO"
 adb shell run-as $P cat files/test_elenco.txt || true
