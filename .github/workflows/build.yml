@@ -22,6 +22,12 @@ jobs:
         with:
           name: ScudoChiamate-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Verifica APK
+        run: |
+          BT=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -1)
+          $BT/aapt2 dump badging app/build/outputs/apk/debug/app-debug.apk | head -5
+          $BT/apksigner verify --verbose --print-certs app/build/outputs/apk/debug/app-debug.apk
+          unzip -p app/build/outputs/apk/debug/app-debug.apk AndroidManifest.xml | strings | grep -i testonly || echo "no testOnly"
       - name: Rinomina APK
         run: cp app/build/outputs/apk/debug/app-debug.apk ScudoChiamate.apk
       - name: Pubblica come release
