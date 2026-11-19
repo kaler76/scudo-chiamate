@@ -22,7 +22,7 @@ public class MainActivity extends Activity {
 
     private Gauge gauge;
     private TextView verdict, lastRun, fullBtn, protTitle, protSub, protBtn;
-    private LinearLayout tilesTop, tilesBottom;
+    private LinearLayout tilesTop, tilesBottom, tilesThird;
     private boolean running = false;
 
     @Override protected void onCreate(Bundle b) {
@@ -59,6 +59,7 @@ public class MainActivity extends Activity {
         Ui.sectionLabel(this, col, "Controlli");
         tilesTop = Ui.hRow(this, col);
         tilesBottom = Ui.hRow(this, col);
+        tilesThird = Ui.hRow(this, col);
 
         // ---------------------------------------------------------------- protezione
         Ui.sectionLabel(this, col, "Protezione durante le chiamate");
@@ -70,8 +71,6 @@ public class MainActivity extends Activity {
 
         // ---------------------------------------------------------------- altro
         Ui.sectionLabel(this, col, "Altro");
-        Ui.menuRow(this, col, R.drawable.ic_list, Ui.GREEN, "Registro",
-                "Chiamate, chi ha chiamato, avvisi", v -> startActivity(new Intent(this, LogActivity.class)));
         Ui.menuRow(this, col, R.drawable.ic_bulb, Ui.ORANGE, "Consigli e limiti",
                 "Cosa si può scoprire e cosa no", v -> startActivity(new Intent(this, TipsActivity.class)));
 
@@ -105,11 +104,18 @@ public class MainActivity extends Activity {
         tile(tilesTop, R.drawable.ic_forward, "Deviazioni", Results.FORWARD, ForwardActivity.class);
         tile(tilesBottom, R.drawable.ic_data, "Traffico dati", Results.TRAFFIC, TrafficActivity.class);
         tile(tilesBottom, R.drawable.ic_phone, "Sicurezza telefono", Results.AUDIT, AuditActivity.class);
+        tilesThird.removeAllViews();
+        tile(tilesThird, R.drawable.ic_chat, "WhatsApp", Results.WHATSAPP, WhatsAppActivity.class);
+        int alarms = 0;
+        for (String[] r : EventLog.read(this)) if (EventLog.ALERT.equals(r[1])) alarms++;
+        Ui.tile(this, tilesThird, R.drawable.ic_list, "Registro",
+                alarms == 0 ? "Nessun allarme" : alarms + " allarmi registrati", alarms == 0 ? Ui.GREEN : Ui.RED,
+                v -> startActivity(new Intent(this, LogActivity.class)));
 
         boolean on = CallMonitorService.isEnabled(this);
         protTitle.setText(on ? "Attiva" : "Spenta");
         protTitle.setTextColor(on ? Ui.GREEN : Ui.TEXT);
-        protSub.setText(on ? "Ogni chiamata: chi chiama, uso del microfono, rete 2G, cambi di cella."
+        protSub.setText(on ? "Chiamate normali e WhatsApp: chi chiama, uso del microfono, rete 2G, cambi di cella."
                 : "Controlla in tempo reale microfono e rete durante le chiamate e ti dice chi sta chiamando.");
         protBtn.setText(on ? "Disattiva" : "Attiva protezione");
         protBtn.setBackground(Ui.pressable(this, on ? Ui.CARD2 : Ui.ACCENT, 14));
@@ -142,6 +148,10 @@ public class MainActivity extends Activity {
             Results.saveApps(this, apps);
             runOnUiThread(() -> fullBtn.setText("Sicurezza del telefono…"));
             Results.saveAudit(this, DeviceAudit.run(getApplicationContext()));
+            runOnUiThread(() -> fullBtn.setText("WhatsApp…"));
+            Results.saveWhatsApp(this, WhatsAppCheck.run(getApplicationContext()),
+                    getSharedPreferences("whatsapp", MODE_PRIVATE).getLong("linked", 0) > 0
+                            && getSharedPreferences("whatsapp", MODE_PRIVATE).getLong("twostep", 0) > 0);
             if (TrafficAnalyzer.hasAccess(this)) {
                 runOnUiThread(() -> fullBtn.setText("Traffico dati…"));
                 Results.saveTraffic(this, TrafficAnalyzer.analyze(getApplicationContext()));

@@ -14,6 +14,7 @@ final class Results {
     static final String FORWARD = "forward";
     static final String TRAFFIC = "traffic";
     static final String AUDIT = "audit";
+    static final String WHATSAPP = "whatsapp";
 
     private Results() {}
 
@@ -36,7 +37,7 @@ final class Results {
 
     static String lastTime(Context c) {
         long t = 0;
-        for (String m : new String[]{APPS, FORWARD, TRAFFIC, AUDIT}) t = Math.max(t, p(c).getLong(m + "_time", 0));
+        for (String m : new String[]{APPS, FORWARD, TRAFFIC, AUDIT, WHATSAPP}) t = Math.max(t, p(c).getLong(m + "_time", 0));
         if (t == 0) return null;
         return new SimpleDateFormat("dd/MM 'alle' HH:mm", Locale.ITALY).format(new Date(t));
     }
@@ -60,6 +61,10 @@ final class Results {
         if (tr >= 0) any = true;
         if (tr >= 2) score -= 20;
         else if (tr == 1) score -= 8;
+        int wa = level(c, WHATSAPP);
+        if (wa >= 0) any = true;
+        if (wa >= 2) score -= 25;
+        else if (wa == 1) score -= 5;
         return any ? Math.max(0, Math.min(100, score)) : -1;
     }
 
@@ -124,5 +129,19 @@ final class Results {
         saveAuditScore(c, score);
         save(c, AUDIT, bad > 0 ? 2 : warn > 0 ? 1 : 0,
                 score + "/100 · " + (bad + warn == 0 ? "tutto in ordine" : bad + " problemi, " + warn + " avvisi"));
+    }
+
+    static void saveWhatsApp(Context c, List<DeviceAudit.Check> checks, boolean guidedDone) {
+        if (!WhatsAppCheck.installed(c)) { save(c, WHATSAPP, 0, "WhatsApp non installato"); return; }
+        int bad = 0, warn = 0;
+        String first = null;
+        for (DeviceAudit.Check k : checks) {
+            if (k.state == 2) { bad++; if (first == null) first = k.title; }
+            else if (k.state == 1) warn++;
+        }
+        if (bad > 0) save(c, WHATSAPP, 2, first);
+        else if (warn > 0) save(c, WHATSAPP, 1, warn + " punti da verificare");
+        else if (!guidedDone) save(c, WHATSAPP, 1, "Controlla i dispositivi collegati");
+        else save(c, WHATSAPP, 0, "Tutto in ordine");
     }
 }

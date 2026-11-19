@@ -87,6 +87,25 @@ public class CallMonitorService extends Service {
         }
     };
 
+    // ---- chiamate via internet (WhatsApp, Telegram, Messenger…)
+    private boolean inVoip = false;
+    private long voipStart;
+    private int voipOwnerSession = -1;
+    private Object modeListener;
+    private final Runnable modePoll = new Runnable() {
+        @Override public void run() {
+            onAudioMode(am.getMode());
+            handler.postDelayed(this, 3000);
+        }
+    };
+    private final Runnable voipPoll = new Runnable() {
+        @Override public void run() {
+            if (!inVoip) return;
+            checkVoipMicrophone();
+            handler.postDelayed(this, POLL_MS);
+        }
+    };
+
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!inCall) return;
@@ -125,6 +144,7 @@ public class CallMonitorService extends Service {
         }
         running = true;
         registerCallListener();
+        startVoipWatch();
         IntentFilter f = new IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED);
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(phoneState, f, Context.RECEIVER_EXPORTED);
         else registerReceiver(phoneState, f);
@@ -138,6 +158,11 @@ public class CallMonitorService extends Service {
     @Override public void onDestroy() {
         running = false;
         handler.removeCallbacks(poll);
+        handler.removeCallbacks(modePoll);
+        handler.removeCallbacks(voipPoll);
+        if (Build.VERSION.SDK_INT >= 31 && modeListener != null) {
+            am.removeOnModeChangedListener((AudioManager.OnModeChangedListener) modeListener);
+        }
         unregisterCallListener();
         try { unregisterReceiver(phoneState); } catch (Exception ignored) { }
         EventLog.add(this, EventLog.INFO, "Protezione chiamate disattivata");
@@ -440,5 +465,60 @@ public class CallMonitorService extends Service {
         Intent i = new Intent(this, cls).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         return PendingIntent.getActivity(this, cls.hashCode(), i,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+    }
+
+    // ------------------------------------------------------- chiamate via internet
+
+    private void startVoipWatch() {
+        if (Build.VERSION.SDK_INT >= 31) {
+            AudioManager.OnModeChangedListener l = this::onAudioMode;
+            am.addOnModeChangedListener(getMainExecutor(), l);
+            modeListener = l;
+            onAudioMode(am.getMode());
+        } else {
+            handler.post(modePoll);
+        }
+    }
+
+    /** MODE_IN_COMMUNICATION = chiamata via internet; MODE_IN_CALL = chiamata normale (già gestita). */
+    private void onAudioMode(int mode) {
+        if (mode == AudioManager.MODE_IN_COMMUNICATION && !inVoip && !inCall) {
+            inVoip = true;
+            voipStart = System.currentTimeMillis();
+            voipOwnerSession = -1;
+            seenRecorders.clear();
+            alertsThisCall = 0;
+            EventLog.add(this, EventLog.INFO, "Chiamata via internet iniziata (WhatsApp o app simile): avvio controlli");
+            updateStatus("Chiamata WhatsApp/internet: controllo il microfono");
+            handler.postDelayed(voipPoll, 1500);
+        } else if (mode != AudioManager.MODE_IN_COMMUNICATION && inVoip) {
+            inVoip = false;
+            handler.removeCallbacks(voipPoll);
+            long secs = (System.currentTimeMillis() - voipStart) / 1000;
+            EventLog.add(this, alertsThisCall == 0 ? EventLog.INFO : EventLog.WARN,
+                    "Chiamata via internet terminata (" + secs + " s): "
+                            + (alertsThisCall == 0 ? "nessun'altra app ha usato il microfono" : alertsThisCall + " segnalazioni"));
+            updateStatus("Protezione attiva: controllo le chiamate");
+        }
+    }
+
+    /** Il primo registratore è l'app che sta chiamando; ogni altro è un'app che ascolta in più. */
+    private void checkVoipMicrophone() {
+        List<AudioRecordingConfiguration> cfgs = am.getActiveRecordingConfigurations();
+        if (cfgs == null || cfgs.isEmpty()) return;
+        if (voipOwnerSession == -1) voipOwnerSession = cfgs.get(0).getClientAudioSessionId();
+        for (AudioRecordingConfiguration c : cfgs) {
+            int session = c.getClientAudioSessionId();
+            if (session == voipOwnerSession) continue;
+            String key = "voip:" + session;
+            if (seenRecorders.contains(key)) continue;
+            seenRecorders.add(key);
+            boolean silenced = Build.VERSION.SDK_INT >= 29 && c.isClientSilenced();
+            alert(silenced ? EventLog.WARN : EventLog.ALERT,
+                    "Durante la chiamata WhatsApp/internet un'ALTRA app sta usando il microfono (sorgente: "
+                            + sourceName(c.getClientAudioSource()) + ")"
+                            + (silenced ? ". Android la sta bloccando." : ".")
+                            + " Può essere normale se usi un registratore o un assistente vocale.");
+        }
     }
 }
