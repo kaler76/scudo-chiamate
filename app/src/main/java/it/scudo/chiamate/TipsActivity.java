@@ -16,10 +16,18 @@ public class TipsActivity extends Activity {
         LinearLayout col = Ui.page(this);
         Ui.title(this, col, "Consigli e limiti");
 
+        section(col, "Due tipi di intercettazione",
+                "• Tramite l'operatore: la chiamata viene copiata sulla rete, fuori dal telefono. Non cambia"
+                + " niente di quello che vedi e nessuna app può accorgersene.\n"
+                + "• Tramite trojan sul telefono (captatore informatico o app spia commerciale): il programma"
+                + " è installato sul tuo dispositivo, quindi si può scovare. Può arrivare anche dal Play Store"
+                + " travestito da app di assistenza o aggiornamento, come è successo con Exodus nel 2019."
+                + " È questo che cerca \"Cerca app spia\".");
+
         section(col, "Cosa l'app NON può fare",
-                "• Non può sapere se chi ti chiama ha app spia sul suo telefono: nessuna app può farlo.\n"
-                + "• Non vede le intercettazioni fatte dall'operatore o dalle autorità: avvengono sulla rete,"
-                + " non sul telefono.\n"
+                "• Non può sapere se chi ti chiama ha app spia sul suo telefono.\n"
+                + "• Non può leggere le etichette \"spam\" di Samsung, Hiya o Truecaller: restano dentro"
+                + " quelle app. Un'etichetta spam riguarda la reputazione del numero chiamante.\n"
                 + "• Gli avvisi sono indizi, non prove.");
 
         section(col, "Disattiva il 2G",

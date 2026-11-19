@@ -47,6 +47,12 @@ final class AppScanner {
     /** Parole generiche: pesano poco perché usate anche da app innocue. */
     private static final String[] WEAK_NAMES = {"monitor", "tracker", "stealth", "hidden", "nascost"};
 
+    /** Nomi usati dai trojan per sembrare app di servizio dell'operatore o del sistema. */
+    private static final String[] DISGUISE_NAMES = {
+            "assistenza", "aggiornament", "update", "servizi", "service", "operatore", "sicurezza",
+            "security", "sim ", "rete", "network", "sistema", "system"
+    };
+
     private static final Set<String> TRUSTED_STORES = new HashSet<>();
     static {
         TRUSTED_STORES.add("com.android.vending");               // Google Play
@@ -136,6 +142,15 @@ final class AppScanner {
             }
             for (String k : WEAK_NAMES) {
                 if (hay.contains(k)) { add(r, 2, "Nome sospetto (\"" + k + "\")"); break; }
+            }
+
+            // Trojan travestiti da app dello store (es. Exodus, 2019: finte app "assistenza operatore"):
+            // microfono + registro chiamate + avvio automatico pesano anche se l'app viene dallo store.
+            if (fromStore && mic && callLog && boot) {
+                add(r, 4, "Microfono + registro chiamate + avvio automatico: combinazione tipica dei trojan");
+                for (String k : DISGUISE_NAMES) {
+                    if (hay.contains(k)) { add(r, 3, "Nome da finta app di servizio (\"" + k + "\")"); break; }
+                }
             }
 
             // Combinazione tipica delle app spia: microfono + chiamate + nascosta o accessibilità.
