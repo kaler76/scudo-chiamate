@@ -65,7 +65,10 @@ public class LogActivity extends Activity {
 
         filters = new LinearLayout(this);
         filters.setOrientation(LinearLayout.HORIZONTAL);
-        col.addView(filters, Ui.full(this, 6));
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        hs.addView(filters);
+        col.addView(hs, Ui.full(this, 6));
 
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
@@ -95,7 +98,7 @@ public class LogActivity extends Activity {
         int nToday = 0, nAlarm = 0, nUnknown = 0;
         for (CallStore.Call c : calls) {
             if (c.start >= today) nToday++;
-            if (c.hasAlarm()) nAlarm++;
+            if (c.warnCount() > 0) nAlarm++;
             if (!c.voip && name(c.number) == null) nUnknown++;
         }
         Ui.stat(this, stats, String.valueOf(nToday), "chiamate oggi", Ui.ACCENT);
@@ -108,7 +111,7 @@ public class LogActivity extends Activity {
 
         filters.removeAllViews();
         String[] f = tab == TAB_CALLS
-                ? new String[]{"Tutte", "Con allarmi", "Non in rubrica", "Perse/bloccate"}
+                ? new String[]{"Tutte", "Con allarmi", "Sconosciuti che richiamano", "Non in rubrica", "Perse/bloccate"}
                 : new String[]{"Tutti", "Solo allarmi"};
         for (int i = 0; i < f.length; i++) {
             int idx = i;
@@ -149,7 +152,7 @@ public class LogActivity extends Activity {
     // ------------------------------------------------------------------ elenco
 
     private void render() {
-        List<CallStore.Call> calls = CallStore.read(this);
+        List<CallStore.Call> calls = CallStore.all(this);
         List<String[]> events = EventLog.read(this);
         renderHeader(calls, events);
         list.removeAllViews();
@@ -157,13 +160,29 @@ public class LogActivity extends Activity {
     }
 
     private void renderCalls(List<CallStore.Call> calls) {
+        if (!PhoneHistory.allowed(this)) {
+            LinearLayout c = Ui.card(this, list, Ui.ORANGE);
+            Ui.text(this, c, "Per mostrare tutte le chiamate (anche quelle fatte a protezione spenta) serve il"
+                    + " permesso \"Registro chiamate\".", 14, Ui.TEXT);
+            Ui.link(this, c, "Concedi permesso ›", Ui.ACCENT,
+                    v -> requestPermissions(new String[]{android.Manifest.permission.READ_CALL_LOG}, 5));
+        }
+        java.util.Map<String, Integer> unknownCount = new java.util.HashMap<>();
+        long month = System.currentTimeMillis() - 30L * 86_400_000L;
+        for (CallStore.Call c : calls) {
+            if (c.voip || c.number == null || c.start < month || CallStore.OUT.equals(c.dir) || name(c.number) != null) continue;
+            String k = PhoneHistory.key(c.number);
+            unknownCount.put(k, unknownCount.containsKey(k) ? unknownCount.get(k) + 1 : 1);
+        }
         long lastDay = -1;
         int shown = 0;
         for (CallStore.Call c : calls) {
             String nm = name(c.number);
-            if (filter == 1 && c.alerts.isEmpty()) continue;
-            if (filter == 2 && (c.voip || nm != null)) continue;
-            if (filter == 3 && !(CallStore.MISSED.equals(c.dir) || CallStore.REJECTED.equals(c.dir)
+            Integer rep = c.number != null ? unknownCount.get(PhoneHistory.key(c.number)) : null;
+            if (filter == 1 && c.warnCount() == 0) continue;
+            if (filter == 2 && (rep == null || rep < 2 || nm != null)) continue;
+            if (filter == 3 && (c.voip || nm != null)) continue;
+            if (filter == 4 && !(CallStore.MISSED.equals(c.dir) || CallStore.REJECTED.equals(c.dir)
                     || CallStore.BLOCKED.equals(c.dir))) continue;
             if (!query.isEmpty()) {
                 String hay = ((nm != null ? nm : "") + " " + (c.number != null ? c.number : "")).toLowerCase(Locale.ROOT);
@@ -175,7 +194,7 @@ public class LogActivity extends Activity {
             }
             long d = startOfDay(c.start);
             if (d != lastDay) { dayHeader(d); lastDay = d; }
-            callRow(c, nm);
+            callRow(c, nm, rep != null && rep >= 2 && nm == null ? rep : 0);
         }
         if (shown == 0) empty(calls.isEmpty()
                 ? "Nessuna chiamata registrata.\nAttiva la protezione: da quel momento ogni chiamata compare qui."
@@ -190,7 +209,12 @@ public class LogActivity extends Activity {
         t.setPadding(Ui.dp(this, 4), Ui.dp(this, 10), 0, Ui.dp(this, 2));
     }
 
-    private void callRow(CallStore.Call c, String nm) {
+    @Override public void onRequestPermissionsResult(int code, String[] p, int[] r) {
+        super.onRequestPermissionsResult(code, p, r);
+        render();
+    }
+
+    private void callRow(CallStore.Call c, String nm, int repeated) {
         int icon, color;
         String dirTxt;
         if (c.voip) { icon = R.drawable.ic_chat; color = Ui.ACCENT; dirTxt = "via internet"; }
@@ -234,15 +258,16 @@ public class LogActivity extends Activity {
         StringBuilder sb = new StringBuilder(hm.format(new Date(c.start))).append(" · ").append(dirTxt);
         if (c.durationSec > 0) sb.append(" · ").append(dur(c.durationSec));
         if (c.network != null) sb.append(" · ").append(c.network);
+        if (repeated >= 2) sb.append(" · ").append(repeated).append(" chiamate in 30 gg");
         sub.setText(sb);
         sub.setTextSize(12);
         sub.setTextColor(Ui.SUB);
         texts.addView(sub);
         row.addView(texts, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
 
-        if (!c.alerts.isEmpty()) {
+        if (c.warnCount() > 0) {
             TextView badge = new TextView(this);
-            badge.setText(alarm ? "⚠ " + c.alerts.size() : "! " + c.alerts.size());
+            badge.setText(alarm ? "⚠ " + c.warnCount() : "! " + c.warnCount());
             badge.setTextSize(12);
             badge.setTypeface(Typeface.DEFAULT_BOLD);
             int bc = alarm ? Ui.RED : Ui.ORANGE;
@@ -276,13 +301,21 @@ public class LogActivity extends Activity {
         if (!c.cells.isEmpty()) {
             Ui.text(this, d, "Celle del tuo telefono (" + c.cells.size() + "): " + String.join(" → ", c.cells), 12, Ui.SUB);
         }
-        if (c.alerts.isEmpty()) {
+        if (!c.monitored && !c.voip) {
+            Ui.text(this, d, "Chiamata non controllata: in quel momento la protezione era spenta o fermata dal"
+                    + " risparmio batteria.", 13, Ui.SUB);
+        } else if (c.warnCount() == 0) {
             Ui.text(this, d, "✓ Nessun segnale sospetto durante questa chiamata", 13, Ui.GREEN);
-        } else {
-            for (String[] a : c.alerts) {
-                Ui.text(this, d, (EventLog.ALERT.equals(a[0]) ? "⚠ " : "! ") + a[1], 13,
-                        EventLog.ALERT.equals(a[0]) ? Ui.RED : Ui.ORANGE);
-            }
+        }
+        for (String[] a : c.alerts) {
+            boolean al = EventLog.ALERT.equals(a[0]), info = EventLog.INFO.equals(a[0]);
+            Ui.text(this, d, (al ? "⚠ " : info ? "ℹ " : "! ") + a[1], 13, al ? Ui.RED : info ? Ui.SUB : Ui.ORANGE);
+        }
+        if (c.number != null && !c.voip) {
+            PhoneHistory.Stats st = PhoneHistory.stats(this, c.number, c.start);
+            Ui.text(this, d, "Prima di questa: " + (st.total + st.out == 0 ? "nessun'altra chiamata in 30 giorni"
+                    : st.total + " in entrata" + (st.missed > 0 ? " (" + st.missed + " senza risposta)" : "")
+                    + ", " + st.out + " in uscita negli ultimi 30 giorni"), 12, Ui.SUB);
         }
         if (c.number != null) {
             Ui.link(this, d, "Chi è questo numero? ›", Ui.ACCENT, v -> startActivity(

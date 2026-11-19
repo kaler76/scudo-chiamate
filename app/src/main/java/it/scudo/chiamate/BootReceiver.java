@@ -4,10 +4,13 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 
-/** Riattiva la protezione dopo il riavvio del telefono, se era accesa. */
+/** Riattiva la protezione dopo il riavvio del telefono o un aggiornamento dell'app, se era accesa. */
 public class BootReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context ctx, Intent intent) {
-        if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()) && CallMonitorService.isEnabled(ctx)) {
+        String a = intent.getAction();
+        boolean boot = Intent.ACTION_BOOT_COMPLETED.equals(a) || Intent.ACTION_MY_PACKAGE_REPLACED.equals(a)
+                || "android.intent.action.QUICKBOOT_POWERON".equals(a);
+        if (boot && CallMonitorService.isEnabled(ctx)) {
             try {
                 CallMonitorService.start(ctx);
             } catch (Exception ignored) {

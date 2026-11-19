@@ -21,7 +21,7 @@ public class MainActivity extends Activity {
     private static final int REQ_FULL = 11;
 
     private Gauge gauge;
-    private TextView verdict, lastRun, fullBtn, protTitle, protSub, protBtn;
+    private TextView verdict, lastRun, fullBtn, protTitle, protSub, protBtn, battBtn;
     private LinearLayout tilesTop, tilesBottom, tilesThird;
     private boolean running = false;
 
@@ -69,6 +69,7 @@ public class MainActivity extends Activity {
         protTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
         protSub = Ui.text(this, prot, "", 13, Ui.SUB);
         protBtn = Ui.primary(this, prot, "", Ui.ACCENT, v -> onToggle());
+        battBtn = Ui.button(this, prot, "Escludi dal risparmio batteria", v -> askBattery());
 
         // ---------------------------------------------------------------- altro
         Ui.sectionLabel(this, col, "Altro");
@@ -86,6 +87,10 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        // Se la protezione doveva essere attiva ma il servizio è stato fermato (aggiornamento, risparmio batteria), riparte.
+        if (CallMonitorService.isEnabled(this) && !CallMonitorService.running) {
+            try { CallMonitorService.start(this); } catch (Exception ignored) { }
+        }
         if (!running) refresh();
         handleTestExtras();
     }
@@ -129,6 +134,18 @@ public class MainActivity extends Activity {
             case "deviazioni": startActivity(new Intent(this, ForwardActivity.class)); break;
             case "registro": startActivity(new Intent(this, LogActivity.class)); break;
             case "consigli": startActivity(new Intent(this, TipsActivity.class)); break;
+            case "elenco": {
+                StringBuilder sb = new StringBuilder();
+                for (CallStore.Call c : CallStore.all(this)) {
+                    sb.append(c.dir).append(" ").append(c.number).append(" dur=").append(c.durationSec)
+                            .append(" controllata=").append(c.monitored).append(" segnalazioni=").append(c.warnCount()).append('\n');
+                }
+                sb.append("STORICO 3331234567: ").append(PhoneHistory.stats(this, "+393331234567", 0).summary()).append('\n');
+                try (java.io.FileWriter w = new java.io.FileWriter(new java.io.File(getFilesDir(), "test_elenco.txt"))) {
+                    w.write(sb.toString());
+                } catch (Exception ignored) { }
+                break;
+            }
             case "chi": startActivity(new Intent(this, LookupActivity.class).putExtra(LookupActivity.EXTRA_NUMBER, "+390541123456")); break;
             case "pdf": try { ReportPdf.create(getApplicationContext()); EventLog.add(this, EventLog.INFO, "Test PDF ok"); } catch (Exception e) { throw new RuntimeException(e); } break;
             case "protezione": CallMonitorService.start(this); break;
@@ -175,6 +192,15 @@ public class MainActivity extends Activity {
         protSub.setText(on ? "Chiamate normali e WhatsApp: chi chiama, uso del microfono, rete 2G, cambi di cella."
                 : "Controlla in tempo reale microfono e rete durante le chiamate e ti dice chi sta chiamando.");
         protBtn.setText(on ? "Disattiva" : "Attiva protezione");
+        boolean battOk = batteryOk();
+        battBtn.setVisibility(on && !battOk ? android.view.View.VISIBLE : android.view.View.GONE);
+        if (on && !battOk) {
+            protSub.setText("ATTENZIONE: il risparmio batteria Samsung può fermare la protezione e alcune chiamate"
+                    + " non verranno controllate. Tocca il pulsante qui sotto e scegli \"Consenti\".");
+            protSub.setTextColor(Ui.ORANGE);
+        } else {
+            protSub.setTextColor(Ui.SUB);
+        }
         protBtn.setBackground(Ui.pressable(this, on ? Ui.CARD2 : Ui.ACCENT, 14));
     }
 
@@ -292,5 +318,21 @@ public class MainActivity extends Activity {
     private void startProtection() {
         CallMonitorService.start(this);
         refresh();
+        if (!batteryOk()) askBattery();
+    }
+
+    private boolean batteryOk() {
+        android.os.PowerManager pm = getSystemService(android.os.PowerManager.class);
+        return pm == null || pm.isIgnoringBatteryOptimizations(getPackageName());
+    }
+
+    @android.annotation.SuppressLint("BatteryLife")
+    private void askBattery() {
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    android.net.Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+        }
     }
 }

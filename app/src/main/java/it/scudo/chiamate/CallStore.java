@@ -26,9 +26,17 @@ final class CallStore {
         String dir = UNKNOWN;
         String number;          // null = nascosto o non disponibile
         String network;         // es. "4G (VoLTE)"
+        boolean monitored = true; // false = presa dal registro di Android, protezione non attiva in quel momento
         final List<String> networks = new ArrayList<>();
         final List<String> cells = new ArrayList<>();
         final List<String[]> alerts = new ArrayList<>(); // {livello, testo}
+
+        /** Segnalazioni vere (allarmi e attenzioni), escluse le note informative. */
+        int warnCount() {
+            int n = 0;
+            for (String[] a : alerts) if (!EventLog.INFO.equals(a[0])) n++;
+            return n;
+        }
 
         boolean hasAlarm() {
             for (String[] a : alerts) if (EventLog.ALERT.equals(a[0])) return true;
@@ -116,4 +124,33 @@ final class CallStore {
         } catch (Exception ignored) {
         }
     }
+    /** Chiamate del registro di Android unite a quelle controllate dalla protezione (allarmi, rete, celle). */
+    static List<Call> all(Context ctx) {
+        List<Call> mon = read(ctx);
+        List<Call> out = new ArrayList<>();
+        boolean[] used = new boolean[mon.size()];
+        for (PhoneHistory.Entry e : PhoneHistory.read(ctx, 1500)) {
+            Call match = null;
+            for (int i = 0; i < mon.size(); i++) {
+                Call m = mon.get(i);
+                if (used[i] || m.voip || Math.abs(m.start - e.date) > 120_000) continue;
+                if (m.number != null && e.number != null && !PhoneHistory.same(m.number, e.number)) continue;
+                match = m; used[i] = true; break;
+            }
+            if (match == null) {
+                match = new Call();
+                match.monitored = false;
+                match.start = e.date;
+                match.end = e.date + e.duration * 1000;
+            }
+            if (match.number == null) match.number = e.number;
+            match.dir = e.dir;
+            match.durationSec = e.duration;
+            out.add(match);
+        }
+        for (int i = 0; i < mon.size(); i++) if (!used[i]) out.add(mon.get(i));
+        java.util.Collections.sort(out, (a, b) -> Long.compare(b.start, a.start));
+        return out;
+    }
+
 }

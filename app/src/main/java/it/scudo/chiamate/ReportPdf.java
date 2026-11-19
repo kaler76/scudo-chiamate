@@ -108,7 +108,7 @@ final class ReportPdf {
 
         // ---------------- chiamate
         section("Chiamate controllate — dalla più recente");
-        List<CallStore.Call> calls = CallStore.read(ctx);
+        List<CallStore.Call> calls = CallStore.all(ctx);
         if (calls.isEmpty()) text("Nessuna chiamata registrata.", body, 4);
         SimpleDateFormat df = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.ITALY);
         int k = 0;
@@ -125,7 +125,11 @@ final class ReportPdf {
                     + (cl.network != null ? "  · rete " + String.join(" → ", cl.networks) : ""),
                     cl.hasAlarm() ? red : body, 0);
             if (!cl.cells.isEmpty()) text("   celle del telefono: " + String.join(" → ", cl.cells), small, 0);
-            for (String[] a : cl.alerts) text("   " + a[0] + ": " + a[1], EventLog.ALERT.equals(a[0]) ? red : orange, 0);
+            if (!cl.monitored && !cl.voip) text("   (non controllata: protezione non attiva)", small, 0);
+            for (String[] a : cl.alerts) {
+                if (EventLog.INFO.equals(a[0])) continue;
+                text("   " + a[0] + ": " + a[1], EventLog.ALERT.equals(a[0]) ? red : orange, 0);
+            }
             y += 3;
         }
 

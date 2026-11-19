@@ -18,6 +18,9 @@ for t in app sicurezza whatsapp traffico registro consigli deviazioni chi pdf pr
   adb shell input keyevent KEYCODE_BACK
   sleep 2
 done
+echo "=== CHIAMATA A PROTEZIONE SPENTA"
+adb emu gsm call 3331234567; sleep 5
+adb emu gsm cancel 3331234567; sleep 4
 echo "=== CHIAMATA SIMULATA"
 adb shell am force-stop $P; sleep 1
 adb shell am start -W -n $P/.MainActivity --es test protezione
@@ -27,7 +30,17 @@ adb emu gsm accept 3331234567; sleep 12
 adb emu gsm cancel 3331234567; sleep 8
 adb emu gsm call 0541999888; sleep 6
 adb emu gsm cancel 0541999888; sleep 8
+adb emu gsm call 3331234567; sleep 5
+adb emu gsm cancel 3331234567; sleep 8
 adb shell run-as $P cat files/chiamate.jsonl || echo "nessuna chiamata registrata"
+adb shell am start -W -n $P/.MainActivity --es test elenco
+sleep 5
+echo "=== ELENCO UNITO"
+adb shell run-as $P cat files/test_elenco.txt || true
+echo "=== RIAVVIO DOPO AGGIORNAMENTO"
+adb install -r ScudoChiamate.apk
+sleep 8
+adb shell dumpsys activity services $P | grep -c CallMonitorService || true
 adb shell am start -W -n $P/.MainActivity --es test registro
 sleep 6
 adb shell am start -W -n $P/.MainActivity --es test pdf

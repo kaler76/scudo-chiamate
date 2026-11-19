@@ -239,6 +239,7 @@ public class CallMonitorService extends Service {
     }
 
     private void newCall(boolean voip) {
+        recorderSince.clear();
         cur = new CallStore.Call();
         cur.start = System.currentTimeMillis();
         cur.voip = voip;
@@ -277,51 +278,72 @@ public class CallMonitorService extends Service {
     // ------------------------------------------------------------- chiamante
 
     private void showCaller(String num) {
-        String info = NumberInfo.describe(this, num);
         if (cur != null && cur.number == null) cur.number = num;
-        Intent look = new Intent(this, LookupActivity.class)
-                .putExtra(LookupActivity.EXTRA_NUMBER, num)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        PendingIntent lookPi = PendingIntent.getActivity(this, 77, look,
-                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        Notification n = new Notification.Builder(this, CH_CALLER)
-                .setContentIntent(lookPi)
-                .addAction(new Notification.Action.Builder(null, "Chi è questo numero?", lookPi).build())
-                .setSmallIcon(R.drawable.ic_notif)
-                .setContentTitle("Chi ti sta chiamando")
-                .setContentText(info)
-                .setStyle(new Notification.BigTextStyle().bigText(info))
-                .setTimeoutAfter(60_000)
-                .setAutoCancel(true)
-                .build();
-        getSystemService(NotificationManager.class).notify(ID_CALLER, n);
+        new Thread(() -> {
+            String name = NumberInfo.contactName(this, num);
+            PhoneHistory.Stats st = PhoneHistory.stats(this, num, System.currentTimeMillis() - 5000);
+            String title = name != null ? name : "Numero non in rubrica: " + num;
+            String text = NumberInfo.kind(num) + "\n" + st.summary();
+            if (st.blocked > 0) text += "\nIn passato il telefono ha bloccato questo numero " + st.blocked + " volte.";
+            Intent look = new Intent(this, LookupActivity.class)
+                    .putExtra(LookupActivity.EXTRA_NUMBER, num)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            PendingIntent lookPi = PendingIntent.getActivity(this, 77, look,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+            Notification n = new Notification.Builder(this, CH_CALLER)
+                    .setContentIntent(lookPi)
+                    .addAction(new Notification.Action.Builder(null, "Chi è questo numero?", lookPi).build())
+                    .setSmallIcon(R.drawable.ic_notif)
+                    .setContentTitle(title)
+                    .setContentText(st.summary())
+                    .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setTimeoutAfter(90_000)
+                    .setAutoCancel(true)
+                    .build();
+            getSystemService(NotificationManager.class).notify(ID_CALLER, n);
+        }).start();
     }
 
     // -------------------------------------------------------------- microfono
 
+    /** Da quando ogni registratore è attivo: si segnala solo chi ascolta per almeno MIC_MIN_MS. */
+    private final java.util.Map<String, Long> recorderSince = new java.util.HashMap<>();
+    private static final long MIC_MIN_MS = 6000;
+
     private void checkMicrophone() {
         List<AudioRecordingConfiguration> cfgs = am.getActiveRecordingConfigurations();
         if (cfgs == null) return;
+        long now = System.currentTimeMillis();
+        java.util.Set<String> active = new java.util.HashSet<>();
         for (AudioRecordingConfiguration c : cfgs) {
             int src = c.getClientAudioSource();
             String key = c.getClientAudioSessionId() + ":" + src;
+            active.add(key);
             if (seenRecorders.contains(key)) continue;
-            seenRecorders.add(key);
-
             boolean silenced = Build.VERSION.SDK_INT >= 29 && c.isClientSilenced();
-            String srcName = sourceName(src);
-            String msg;
-            if (src == MediaRecorder.AudioSource.VOICE_CALL
-                    || src == MediaRecorder.AudioSource.VOICE_DOWNLINK
-                    || src == MediaRecorder.AudioSource.VOICE_UPLINK) {
-                msg = "Un'app sta cercando di REGISTRARE LA CHIAMATA (sorgente: " + srcName + ")";
-            } else {
-                msg = "Un'altra app sta usando il microfono durante la chiamata (sorgente: " + srcName + ")";
+            if (silenced) {
+                // Android l'ha già bloccata: riceve solo silenzio. Lo annotiamo nella chiamata, senza allarme.
+                seenRecorders.add(key);
+                if (cur != null) cur.alerts.add(new String[]{EventLog.INFO,
+                        "Un'app ha provato ad ascoltare ma Android l'ha bloccata: nessun rischio."});
+                continue;
             }
-            if (silenced) msg += ". Android la sta bloccando (audio silenziato)";
-            msg += ". Se hai attivato la registrazione chiamate Samsung o un assistente vocale, può essere normale.";
-            alert(silenced ? EventLog.WARN : EventLog.ALERT, msg);
+            Long since = recorderSince.get(key);
+            if (since == null) { recorderSince.put(key, now); continue; }
+            if (now - since < MIC_MIN_MS) continue;
+            seenRecorders.add(key);
+            boolean callRec = src == MediaRecorder.AudioSource.VOICE_CALL
+                    || src == MediaRecorder.AudioSource.VOICE_DOWNLINK
+                    || src == MediaRecorder.AudioSource.VOICE_UPLINK;
+            String at = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.ITALY).format(new java.util.Date(since));
+            alert(EventLog.ALERT,
+                    callRec ? "Un'app sta REGISTRANDO la chiamata" : "Un'altra app ascolta dal microfono",
+                    (callRec ? "Un'app sta registrando la chiamata, compresa la voce di chi ti parla."
+                            : "Mentre eri al telefono un'app diversa dalla chiamata ha usato il microfono per più di 6 secondi e poteva sentirti.")
+                            + " Per sapere quale: Impostazioni › Privacy › Uso autorizzazioni › Microfono, e guarda le app delle "
+                            + at + ". Se è Bixby, \"Ok Google\" o la registrazione chiamate Samsung, è normale.");
         }
+        recorderSince.keySet().retainAll(active);
     }
 
     private static String sourceName(int s) {
@@ -352,9 +374,10 @@ public class CallMonitorService extends Service {
         if (net != lastNetType) {
             String name = netName(net);
             if (is2G(net)) {
-                alert(EventLog.ALERT, "La chiamata è passata su rete 2G (" + name + "). Il 2G ha una cifratura debole"
-                        + " ed è la rete usata dai falsi ripetitori (IMSI catcher). Può succedere anche per"
-                        + " semplice scarsa copertura: è un indizio, non una prova.");
+                alert(EventLog.ALERT, "Chiamata passata al 2G",
+                        "Il telefono è sceso sulla rete " + name + ", che ha una protezione debole ed è quella usata dai"
+                        + " falsi ripetitori. Spesso succede solo per scarsa copertura (cantine, campagna). Se ti capita"
+                        + " spesso in posti dove di solito hai il 4G, disattiva il 2G: Consigli › Disattiva il 2G.");
             }
             if (cur != null) {
                 if (cur.network == null) cur.network = name;
@@ -375,8 +398,9 @@ public class CallMonitorService extends Service {
             cellChanges++;
             if (cur != null) cur.cells.add(cell);
             if (cellChanges == 4) {
-                alert(EventLog.WARN, "Molti cambi di cella in questa chiamata. Normale se sei in movimento,"
-                        + " sospetto se sei fermo.");
+                alert(EventLog.WARN, "Molti cambi di cella",
+                        "Durante questa chiamata il telefono ha cambiato ripetitore 4 volte. È normale se eri in"
+                        + " movimento (auto, treno); se eri fermo può essere un segnale di falso ripetitore.");
             }
         } else if (lastCell == null) {
             if (cur != null) cur.cells.add(cell);
@@ -440,13 +464,18 @@ public class CallMonitorService extends Service {
     // ------------------------------------------------------------- notifiche
 
     private void alert(String level, String msg) {
+        alert(level, EventLog.ALERT.equals(level) ? "Allarme durante la chiamata" : "Attenzione", msg);
+    }
+
+    private void alert(String level, String title, String msg) {
         alertsThisCall++;
-        if (cur != null) cur.alerts.add(new String[]{level, msg});
-        EventLog.add(this, level, msg, cur != null ? cur.number : null);
+        String full = title + ". " + msg;
+        if (cur != null) cur.alerts.add(new String[]{level, full});
+        EventLog.add(this, level, full, cur != null ? cur.number : null);
         NotificationManager nm = getSystemService(NotificationManager.class);
         Notification n = new Notification.Builder(this, CH_ALERT)
                 .setSmallIcon(R.drawable.ic_notif)
-                .setContentTitle(EventLog.ALERT.equals(level) ? "Possibile intercettazione" : "Attenzione")
+                .setContentTitle(title)
                 .setContentText(msg)
                 .setStyle(new Notification.BigTextStyle().bigText(msg))
                 .setContentIntent(openApp(LogActivity.class))
@@ -530,18 +559,30 @@ public class CallMonitorService extends Service {
         List<AudioRecordingConfiguration> cfgs = am.getActiveRecordingConfigurations();
         if (cfgs == null || cfgs.isEmpty()) return;
         if (voipOwnerSession == -1) voipOwnerSession = cfgs.get(0).getClientAudioSessionId();
+        long now = System.currentTimeMillis();
+        java.util.Set<String> active = new java.util.HashSet<>();
         for (AudioRecordingConfiguration c : cfgs) {
             int session = c.getClientAudioSessionId();
             if (session == voipOwnerSession) continue;
             String key = "voip:" + session;
+            active.add(key);
             if (seenRecorders.contains(key)) continue;
+            if (Build.VERSION.SDK_INT >= 29 && c.isClientSilenced()) {
+                seenRecorders.add(key);
+                if (cur != null) cur.alerts.add(new String[]{EventLog.INFO,
+                        "Un'app ha provato ad ascoltare ma Android l'ha bloccata: nessun rischio."});
+                continue;
+            }
+            Long since = recorderSince.get(key);
+            if (since == null) { recorderSince.put(key, now); continue; }
+            if (now - since < MIC_MIN_MS) continue;
             seenRecorders.add(key);
-            boolean silenced = Build.VERSION.SDK_INT >= 29 && c.isClientSilenced();
-            alert(silenced ? EventLog.WARN : EventLog.ALERT,
-                    "Durante la chiamata WhatsApp/internet un'ALTRA app sta usando il microfono (sorgente: "
-                            + sourceName(c.getClientAudioSource()) + ")"
-                            + (silenced ? ". Android la sta bloccando." : ".")
-                            + " Può essere normale se usi un registratore o un assistente vocale.");
+            String at = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.ITALY).format(new java.util.Date(since));
+            alert(EventLog.ALERT, "Un'altra app ascolta la chiamata WhatsApp",
+                    "Durante la chiamata via internet un'app diversa da quella che chiama ha usato il microfono per più"
+                            + " di 6 secondi. Per sapere quale: Impostazioni › Privacy › Uso autorizzazioni › Microfono,"
+                            + " app delle " + at + ".");
         }
+        recorderSince.keySet().retainAll(active);
     }
 }

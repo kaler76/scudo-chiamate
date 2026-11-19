@@ -34,6 +34,29 @@ public class LookupActivity extends Activity {
         num.setTextIsSelectable(true);
         Ui.text(this, card, NumberInfo.describe(this, raw), 14, Ui.SUB);
 
+        // ---- storico con questo numero
+        PhoneHistory.Stats st = PhoneHistory.stats(this, raw, 0);
+        Ui.sectionLabel(this, col, "Storico con questo numero (30 giorni)");
+        LinearLayout h = Ui.card(this, col, st.total >= 3 && NumberInfo.contactName(this, raw) == null ? Ui.ORANGE : Ui.CARD2);
+        if (!PhoneHistory.allowed(this)) {
+            Ui.text(this, h, "Serve il permesso \"Registro chiamate\": attiva la protezione dalla schermata principale.", 13, Ui.SUB);
+        } else if (st.total + st.out == 0) {
+            Ui.text(this, h, "Nessuna chiamata con questo numero negli ultimi 30 giorni.", 14, Ui.TEXT);
+        } else {
+            LinearLayout sr = Ui.hRow(this, h);
+            Ui.stat(this, sr, String.valueOf(st.in), "risposte", Ui.GREEN);
+            Ui.stat(this, sr, String.valueOf(st.missed), "senza risposta", st.missed > 0 ? Ui.ORANGE : Ui.SUB);
+            Ui.stat(this, sr, String.valueOf(st.out), "fatte da te", Ui.ACCENT);
+            if (st.blocked > 0) Ui.text(this, h, "Bloccato dal telefono " + st.blocked + " volte.", 13, Ui.SUB);
+            java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("EEE d MMM HH:mm", java.util.Locale.ITALY);
+            for (PhoneHistory.Entry e : st.recent) {
+                String d = CallStore.IN.equals(e.dir) ? "↙ ricevuta" : CallStore.OUT.equals(e.dir) ? "↗ fatta da te"
+                        : CallStore.MISSED.equals(e.dir) ? "✕ persa" : CallStore.BLOCKED.equals(e.dir) ? "⦸ bloccata" : "✕ rifiutata";
+                Ui.text(this, h, f.format(new java.util.Date(e.date)) + "   " + d
+                        + (e.duration > 0 ? " · " + LogActivity.dur(e.duration) : ""), 13, Ui.TEXT);
+            }
+        }
+
         String intl = international(raw);
         Ui.sectionLabel(this, col, "Profili collegati al numero");
         Ui.text(this, col, "Se la persona usa WhatsApp o Telegram con questo numero, spesso vedi foto profilo, nome e"
