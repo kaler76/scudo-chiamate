@@ -29,6 +29,7 @@ public class MainActivity extends Activity {
         super.onCreate(b);
         LinearLayout col = Ui.page(this);
 
+        showLastCrash(col);
         TextView brand = Ui.text(this, col, "SCUDO CHIAMATE", 13, Ui.ACCENT);
         brand.setLetterSpacing(0.22f);
         brand.setTypeface(Typeface.DEFAULT_BOLD);
@@ -83,6 +84,57 @@ public class MainActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if (!running) refresh();
+        handleTestExtras();
+    }
+
+    /** Se l'ultima volta l'app si è chiusa per un errore, ne mostra il dettaglio (da mandare allo sviluppatore). */
+    private void showLastCrash(LinearLayout col) {
+        java.io.File f = new java.io.File(getFilesDir(), App.CRASH_FILE);
+        if (!f.exists()) return;
+        String txt;
+        try {
+            txt = new String(java.nio.file.Files.readAllBytes(f.toPath()), "UTF-8");
+        } catch (Exception e) {
+            return;
+        }
+        LinearLayout c = Ui.card(this, col, Ui.RED);
+        TextView t = Ui.text(this, c, "L'app si è chiusa per un errore", 16, Ui.RED);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        Ui.text(this, c, "Fai uno screenshot di questo riquadro e mandalo: serve a correggere il problema.", 13, Ui.SUB);
+        String shortTxt = txt.length() > 1500 ? txt.substring(0, 1500) : txt;
+        TextView d = Ui.text(this, c, shortTxt, 10, Ui.TEXT);
+        d.setTypeface(Typeface.MONOSPACE);
+        d.setTextIsSelectable(true);
+        Ui.link(this, c, "Copia testo", Ui.ACCENT, v -> {
+            android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("errore", txt));
+        });
+        Ui.link(this, c, "Chiudi avviso", Ui.SUB, v -> { f.delete(); ((android.view.ViewGroup) c.getParent().getParent()).removeView((android.view.View) c.getParent()); });
+    }
+
+    /** Usato dal test automatico su telefono virtuale (adb): apre una schermata o avvia un'azione. */
+    private void handleTestExtras() {
+        Intent i = getIntent();
+        String what = i != null ? i.getStringExtra("test") : null;
+        if (what == null) return;
+        i.removeExtra("test");
+        switch (what) {
+            case "traffico": startActivity(new Intent(this, TrafficActivity.class)); break;
+            case "app": startActivity(new Intent(this, ScanActivity.class)); break;
+            case "sicurezza": startActivity(new Intent(this, AuditActivity.class)); break;
+            case "whatsapp": startActivity(new Intent(this, WhatsAppActivity.class)); break;
+            case "deviazioni": startActivity(new Intent(this, ForwardActivity.class)); break;
+            case "registro": startActivity(new Intent(this, LogActivity.class)); break;
+            case "consigli": startActivity(new Intent(this, TipsActivity.class)); break;
+            case "protezione": CallMonitorService.start(this); break;
+            case "completa": runFull(); break;
+            default: break;
+        }
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
     }
 
     private void refresh() {
